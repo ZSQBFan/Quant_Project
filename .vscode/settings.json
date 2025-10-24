@@ -1,0 +1,18 @@
+{
+    // 将所有 Python 相关的格式化设置都放在这个块里
+    "[python]": {
+        // 1. 指定默认格式化工具为 yapf (新方法)
+        "editor.defaultFormatter": "eeyore.yapf",
+
+        // 2. 开启保存时自动格式化
+        "editor.formatOnSave": true,
+
+        // 3. (可选) 开启输入时自动格式化，如果觉得干扰可以设为 false 或删除
+        "editor.formatOnType": true
+    },
+
+    // 4. 为 yapf 设置自定义参数 (全局设置，独立于 [python] 块)
+    "python.formatting.yapfArgs": [
+        "--style={based_on_style: pep8, column_limit: 250}"
+    ]
+}
