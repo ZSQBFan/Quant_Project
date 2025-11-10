@@ -168,56 +168,89 @@ def calculate_industry_neutral_reversal20d(
 #                   --- 3. 行业中性 ADXDMI (IndNeu_ADXDMI) ---
 # ==============================================================================
 
+# 【【【【【【 核心修改：移除 _calculate_base_adxdmi 】】】】】】
+# (我们不再需要那个辅助函数)
 
-def _calculate_base_adxdmi(df, period=14, trend_threshold=20):
+
+def calculate_industry_neutral_adxdmi(all_data_df: pd.DataFrame) -> pd.Series:
     """
-    [IndNeu_ADXDMI 辅助函数]
-    (复制自 factors.py)
-    在单个 DataFrame 上计算基础 ADXDMI 因子值。
+    计算【行业中性 ADX/DMI 因子】
+    
+    【【重构】】: 不再使用 'groupby().apply()'，
+    改为在 (date, asset) 索引上直接计算，
+    并使用 'groupby(level='asset')' 来处理 'pandas-ta' 的 MultiIndex 兼容性。
     """
+    factor_name = "IndNeu_ADXDMI"
+    cols_needed = ['industry', 'high', 'low', 'close']
+    if not all(col in all_data_df.columns for col in cols_needed):
+        logging.error(f"❌ [{factor_name}] 无法计算：缺少必要列 {cols_needed}。")
+        return None
+
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    # --- 1. 计算基础 ADXDMI 因子 (p=14, t=20) ---
+    logging.info(f"      > (1/2) 正在计算基础 {factor_name} (p=14, t=20)...")
+    period = 14
+    trend_threshold = 20
+
     if ta is None:
         logging.error("❌ 无法计算 ADXDMI，因为 'pandas-ta' 未加载。")
         raise ImportError("pandas-ta 未安装")
 
-    if not isinstance(df.index, pd.DatetimeIndex):
-        try:
-            # (当从 groupby().apply() 调用时, date 可能是一个列)
-            if 'date' in df.columns:
-                df = df.set_index('date').sort_index()
-            else:
-                raise ValueError("DataFrame 既没有 DatetimeIndex 也没有 'date' 列")
-        except Exception as e:
-            logging.error(
-                f"❌ [ADXDMI 辅助函数] 接收到的 DataFrame 索引不是 DatetimeIndex: {e}")
-            return pd.Series(0, index=df.index)
+    # (确保数据按 asset, date 排序，这对于 groupby().ta.adx 至关重要)
+    # (我们的 all_data_df 已经是 (date, asset) 排序，
+    #  所以 swaplevel() 之后就是 (asset, date) 排序)
+    data_sorted_by_asset = all_data_df.swaplevel().sort_index()
 
-    dmi = ta.adx(df['high'], df['low'], df['close'], length=period)
+    # (使用 'pandas-ta' 的 MultiIndex 功能)
+    # 'groupby(level='asset')' 告诉 ta 在每个 'asset' 组内独立计算
+    try:
+        dmi = ta.adx(
+            data_sorted_by_asset['high'],
+            data_sorted_by_asset['low'],
+            data_sorted_by_asset['close'],
+            length=period,
+            groupby=data_sorted_by_asset.index.get_level_values('asset'))
+    except Exception as e:
+        logging.error(f"  > ❌ [IndNeu_ADXDMI] 'pandas-ta' 库在计算 ADX 时发生错误: {e}",
+                      exc_info=True)
+        return None
 
     if dmi is None or dmi.empty:
         logging.warning(
-            f"  > ⚠️ [ADXDMI 辅助函数] (Period={period}) 计算返回 None (可能数据不足)。")
-        return pd.Series(0, index=df.index)
+            f"  > ⚠️ [IndNeu_ADXDMI] 'pandas-ta' 库返回了 None/Empty (可能数据不足)。")
+        return None
 
+    # (将索引转回 (date, asset))
+    dmi = dmi.swaplevel().sort_index()
+
+    # (提取列，逻辑同 factors.py)
     try:
         adx_col = [col for col in dmi.columns if 'ADX' in col][0]
         plus_di_col = [col for col in dmi.columns if 'DMP' in col][0]
         minus_di_col = [col for col in dmi.columns if 'DMN' in col][0]
     except IndexError:
         logging.error(
-            f"❌ [ADXDMI 辅助函数] 无法在 {dmi.columns.tolist()} 中找到 ADX/DMP/DMN。")
-        return pd.Series(0, index=df.index)
+            f"❌ [IndNeu_ADXDMI] 无法在 {dmi.columns.tolist()} 中找到 ADX/DMP/DMN。")
+        return None
 
     adx = dmi[adx_col]
     plus_di = dmi[plus_di_col]
     minus_di = dmi[minus_di_col]
+
     direction_strength = (plus_di - minus_di) / (plus_di + minus_di).replace(
         0, np.nan)
     trend_strength_weight = adx / 100.0
-    factor_series = pd.Series(np.where(
-        adx > trend_threshold, direction_strength * trend_strength_weight,
-        0.0),
-                              index=df.index)
-    return factor_series
+
+    # (我们必须使用 .values 来避免索引错位)
+    base_adx = pd.Series(np.where(
+        adx.values > trend_threshold,
+        direction_strength.values * trend_strength_weight.values, 0.0),
+                         index=all_data_df.index)  # (确保索引与 all_data_df 一致)
+
+    # --- 2. 行业中性化 (使用通用辅助函数) ---
+    return _neutralize_by_industry(base_adx, all_data_df['industry'],
+                                   factor_name)
 
 
 def calculate_industry_neutral_adxdmi(all_data_df: pd.DataFrame) -> pd.Series:
