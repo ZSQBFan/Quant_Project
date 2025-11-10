@@ -24,8 +24,8 @@ import sys
 from strategy_configs import STRATEGY_REGISTRY
 
 # 【【请在这里选择您的策略名称 (从 strategy_configs.py 复制)】】
-# STRATEGY_NAME = "RollingICIR"
-STRATEGY_NAME = "RollingRegression"
+STRATEGY_NAME = "RollingICIR"
+# STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
@@ -56,10 +56,10 @@ FACTORS_TO_ANALYZE = [
     # ('Momentum', {
     #     'period': 20
     # }),
-    ('Reversal20D', {
-        'period': 40,
-        'decay': 20
-    }),
+    # ('Reversal20D', {
+    #     'period': 40,
+    #     'decay': 20
+    # }),
 ]
 
 # --- 1c. 复合因子选择 (Complex Factors) ---
@@ -71,6 +71,9 @@ from factor_analysis.factors_complex import COMPLEX_FACTOR_REGISTRY
 
 COMPLEX_FACTORS_TO_RUN = [
     "IndNeu_Momentum",
+    "IndNeu_Reversal20D",
+    "IndNeu_VolumeCV",
+    # "IndNeu_ADXDMI",
     # "MktNeu_RSI", # 示例: 如果您在 `factors_complex.py` 中定义了它
 ]
 
@@ -105,13 +108,13 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer
 #   而股票池和时间范围不变时，请将此项设为 True。
 #   这将跳过耗时的数据检查和下载流程，直接使用数据库中的现有数据。
 #
-SKIP_DATA_PREPARATION = True
-# SKIP_DATA_PREPARATION = False # (正常运行时设为 False)
+# SKIP_DATA_PREPARATION = True
+SKIP_DATA_PREPARATION = False  # (正常运行时设为 False)
 #
 # ==============================================================================
 
 # --- 2a. 回测时间与收益周期 ---
-START_DATE = '2023-01-01'
+START_DATE = '2016-01-01'
 END_DATE = '2024-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 30, 60]  # 必须包含 1d 中配置的所有周期
 
