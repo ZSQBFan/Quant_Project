@@ -1,99 +1,222 @@
-# factor_combiner.py
+# core/factor_combiner.py (已重构)
 import pandas as pd
 import numpy as np
+import logging  # <- 【【【新增】】】
 
 
 class BaseFactorCombiner:
     """
+    【【架构文件 - 基类】】
     因子合成器的基类。
-    所有合成器都应继承此类并实现 combine 方法。
+    
+    【【重构日志】】:
+    - 2025-11-09:
+      - 引入 'logging' 模块，替换所有 'print' 语句。
     """
 
     def __init__(self, **kwargs):
-        # 此处可以处理未来可能需要的参数，例如不同因子的权重
         pass
 
     def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
-        """
-        将一个包含多个标准化因子值的DataFrame合成为一个综合得分Series。
-
-        Args:
-            standardized_df (pd.DataFrame):
-                - 索引 (index): 股票的 data feed 对象
-                - 列 (columns): 不同的标准化信号名称
-                - 值 (values): 标准化后的信号值
-
-        Returns:
-            pd.Series:
-                - 索引 (index): 股票的 data feed 对象
-                - 值 (values): 每只股票的最终综合得分
-        """
         raise NotImplementedError("每个合成器子类都必须实现 combine 方法")
 
 
 class EqualWeightCombiner(BaseFactorCombiner):
     """
-    等权重合成器。
-    这是最简单的合成方法，直接将每只股票的所有标准化因子值相加，
-    得到最终的综合得分。
+    【合成器 1: 等权重】
     """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 【【【新增】】】
+        logging.info("ℹ️ EqualWeightCombiner 已初始化 (模式: 等权求和)。")
 
     def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
         """
         通过对所有因子得分求和来实现等权重合成。
         """
-        #print("--- 执行因子合成: 等权重相加 ---")
-        # axis=1 表示沿着列的方向（即对每个股票的所有因子）进行求和
+        logging.debug("  > ⚙️ [EqualWeight] 正在执行等权合成 (sum)...")
         return standardized_df.sum(axis=1)
 
 
 class DynamicSignificanceCombiner(BaseFactorCombiner):
     """
-    动态显著性加权合成器。
-
-    该合成器根据每个因子在特定时间点的相对“显著性”（即标准化后的绝对值大小）
-    来动态地分配权重。信号越强的因子，获得的权重越高。
+    【合成器 2: 动态显著性加权】
     """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 【【【新增】】】
+        logging.info("ℹ️ DynamicSignificanceCombiner 已初始化 (模式: 动态显著性加权)。")
 
     def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
         """
         执行动态显著性加权合成。
-
-        Args:
-            standardized_df (pd.DataFrame): 经过标准化的因子数据。
-                                            索引为股票代码，列为不同因子。
-
-        Returns:
-            pd.Series: 每只股票的最终综合得分。
         """
-        # 1. 计算每个因子的绝对值，代表其“显著性”或“信号强度”
+        logging.debug("  > ⚙️ [DynamicSignificance] 正在执行动态显著性加权合成...")
+
+        # 1. 计算每个因子的绝对值
         abs_significance = standardized_df.abs()
 
         # 2. 计算每行（每只股票）的“总显著性”
-        #    为了防止所有因子值都为0导致除以0的错误，我们用一个很小的数 epsilon 替代0
         total_significance = abs_significance.sum(axis=1)
         total_significance.replace(0, np.finfo(float).eps, inplace=True)
 
         # 3. 计算每个因子的动态权重
-        #    权重 = 自身显著性 / 总显著性
         dynamic_weights = abs_significance.div(total_significance, axis=0)
 
         # 4. 使用动态权重对原始的（带符号的）标准化因子值进行加权求和
-        #    (standardized_df * dynamic_weights) 实现了元素级的乘法
         combined_score = (standardized_df * dynamic_weights).sum(axis=1)
 
         return combined_score
 
 
-# 未来可以轻松在这里添加更多合成器，例如：
-# class ICWeightCombiner(BaseFactorCombiner):
-#     def __init__(self, factor_weights, **kwargs):
-#         super().__init__(**kwargs)
-#         self.factor_weights = factor_weights # 接收一个包含因子权重的字典
-#
-#     def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
-#         print("--- 执行因子合成: IC加权 ---")
-#         # 确保权重和DataFrame的列对齐
-#         aligned_weights = pd.Series(self.factor_weights).reindex(standardized_df.columns).fillna(0)
-#         # 执行加权求和
-#         return (standardized_df * aligned_weights).sum(axis=1)
+class DynamicWeightCombiner(BaseFactorCombiner):
+    """
+    【合成器 3: (原 ICIR) 动态权重合成器】
+    """
+
+    def __init__(self, factor_weights: dict, **kwargs):
+        """
+        初始化 动态权重 合成器。
+        """
+        super().__init__(**kwargs)
+        if not isinstance(factor_weights, dict):
+            # 【【【修改】】】
+            logging.critical("⛔ 'factor_weights' 必须是一个字典。")
+            raise ValueError("factor_weights 必须是一个字典")
+        self.factor_weights = factor_weights
+        # 【【【修改】】】
+        logging.info(f"--- DynamicWeightCombiner 已初始化 ---")
+        logging.info(f"    > 初始权重: {self.factor_weights}")
+
+    def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
+        """
+        执行基于【当前内部】权重的静态加权合成。
+        """
+        logging.debug(
+            f"  > ⚙️ [DynamicWeight] 正在使用 {len(self.factor_weights)} 个权重进行合成..."
+        )
+
+        # 1. 将权重字典转换为 Series，以便于对齐
+        weights_series = pd.Series(self.factor_weights)
+
+        # 2. 将权重 Series 与 standardized_df 的列进行对齐
+        try:
+            aligned_weights = weights_series.reindex(
+                standardized_df.columns).fillna(0)
+        except Exception as e:
+            # 【【【修改】】】
+            logging.error(
+                f"❌ [DynamicWeight] 对齐权重时出错。DataFrame 列: {standardized_df.columns}",
+                exc_info=True)
+            logging.error(f"    > 权重: {self.factor_weights}")
+            raise e
+
+        # 3. 检查是否有任何在权重字典中指定的因子在数据中缺失
+        missing_factors = weights_series.index.difference(
+            standardized_df.columns)
+        if not missing_factors.empty:
+            # 【【【修改】】】
+            logging.warning(
+                f"  > ⚠️ [DynamicWeight] 警告: 权重字典中的因子 {list(missing_factors)} 在"
+                f" 当前的 standardized_df 中未找到，它们将被忽略。")
+
+        # 4. 执行加权求和
+        combined_score = (standardized_df * aligned_weights).sum(axis=1)
+        return combined_score
+
+    def update_weights(self, new_factor_weights: dict):
+        """
+        【【核心方法】】
+        动态更新合成器内部的因子权重。
+        """
+        if not isinstance(new_factor_weights, dict):
+            # 【【【修改】】】
+            logging.warning(
+                "  > ⚠️ [DynamicWeight] 尝试更新权重失败，提供的 new_factor_weights 不是有效字典。"
+            )
+            return
+
+        # 仅在权重实际发生变化时打印日志
+        if self.factor_weights != new_factor_weights:
+            has_changed = False
+            all_keys = set(self.factor_weights.keys()) | set(
+                new_factor_weights.keys())
+
+            # 使用一个小的阈值来比较浮点数
+            threshold = 1e-6
+            for k in all_keys:
+                if abs(
+                        self.factor_weights.get(k, 0) -
+                        new_factor_weights.get(k, 0)) > threshold:
+                    has_changed = True
+                    break
+
+            if has_changed:
+                # 【【【修改】】】
+                # (使用 INFO 级别，因为这是一个关键事件)
+                logging.info(f"--- 权重已在 {pd.Timestamp.now().date()} 更新 ---")
+                logging.info(f"    > 📊 旧权重: {self.factor_weights}")
+                self.factor_weights = new_factor_weights
+                logging.info(f"    > 📊 新权重: {self.factor_weights}")
+            else:
+                # 权重已计算，但值与上期相同
+                self.factor_weights = new_factor_weights
+                logging.debug("  > ℹ️ [DynamicWeight] 权重已重新计算，但与上期相同，未更新。")
+
+
+class FixedWeightCombiner(BaseFactorCombiner):
+    """
+    【合成器 4: 固定权重】
+    """
+
+    def __init__(self, factor_weights: dict, **kwargs):
+        """
+        初始化固定权重合成器。
+        """
+        super().__init__(**kwargs)
+        if not isinstance(factor_weights, dict):
+            # 【【【修改】】】
+            logging.critical("⛔ 'factor_weights' 必须是一个字典。")
+            raise ValueError("factor_weights 必须是一个字典")
+        self.factor_weights = factor_weights
+        # 【【【修改】】】
+        logging.info(f"--- FixedWeightCombiner 已初始化 ---")
+        logging.info(f"    > 固定权重: {self.factor_weights}")
+
+    def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
+        """
+        执行基于固定权重的静态加权合成。
+        """
+        logging.debug(
+            f"  > ⚙️ [FixedWeight] 正在使用 {len(self.factor_weights)} 个固定权重进行合成..."
+        )
+
+        # 1. 将权重字典转换为 Series
+        weights_series = pd.Series(self.factor_weights)
+
+        # 2. 对齐
+        try:
+            aligned_weights = weights_series.reindex(
+                standardized_df.columns).fillna(0)
+        except Exception as e:
+            # 【【【修改】】】
+            logging.error(
+                f"❌ [FixedWeight] 对齐权重时出错。DataFrame 列: {standardized_df.columns}",
+                exc_info=True)
+            logging.error(f"    > 权重: {self.factor_weights}")
+            raise e
+
+        # 3. 检查缺失
+        missing_factors = weights_series.index.difference(
+            standardized_df.columns)
+        if not missing_factors.empty:
+            # 【【【修改】】】
+            logging.warning(
+                f"  > ⚠️ [FixedWeight] 警告: 权重字典中的因子 {list(missing_factors)} 在"
+                f" 当前的 standardized_df 中未找到，它们将被忽略。")
+
+        # 4. 执行加权求和
+        combined_score = (standardized_df * aligned_weights).sum(axis=1)
+        return combined_score

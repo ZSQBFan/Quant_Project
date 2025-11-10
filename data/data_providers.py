@@ -1,16 +1,23 @@
-# data_providers.py
+# data_providers.py (已重构)
 import pandas as pd
 import akshare as ak
 import tushare as ts
 import time
 import random
-from tqdm import tqdm
+# from tqdm import tqdm  <- 【【【移除】】】
+import logging  # <- 【【【新增】】】
 from .database_handler import DatabaseHandler
 
 
 class BaseDataProvider:
     """
     【重构】数据提供者的基础抽象类。
+    
+    【【重构日志】】:
+    - 2025-11-09:
+      - 引入 'logging' 模块。
+      - 将所有 'tqdm.write()' 调用替换为
+        'logging.info()', 'logging.warning()', 'logging.error()'。
     """
 
     def __init__(self, **kwargs):
@@ -33,8 +40,10 @@ class AkshareDataProvider(BaseDataProvider):
 
     def fetch_data(self, symbol: str, start_date: str,
                    end_date: str) -> pd.DataFrame | None:
-        tqdm.write(
-            f"  [Akshare尝试] 正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据...")
+        # 【【【修改】】】
+        logging.info(
+            f"  > 📡 [Akshare尝试] 正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据..."
+        )
         for attempt in range(self.retries):
             try:
                 if symbol.startswith('sh') or symbol.startswith('sz'):
@@ -47,8 +56,9 @@ class AkshareDataProvider(BaseDataProvider):
                         adjust=self.adjust)
 
                 if df_raw is None or df_raw.empty or '日期' not in df_raw.columns:
-                    tqdm.write(
-                        f"  🟡 [Akshare警告] 在 {start_date} - {end_date} 范围内未返回 '{symbol}' 的有效数据。"
+                    # 【【【修改】】】
+                    logging.warning(
+                        f"  > 🟡 [Akshare警告] 在 {start_date} - {end_date} 范围内未返回 '{symbol}' 的有效数据。"
                     )
                     return None
 
@@ -83,23 +93,26 @@ class AkshareDataProvider(BaseDataProvider):
 
                 df_final = df.loc[start_date:end_date]
                 if not df_final.empty:
-                    tqdm.write(
-                        f"  ✅ [Akshare成功] 成功获取 {symbol} 的 {len(df_final)} 条数据。"
+                    # 【【【修改】】】
+                    logging.info(
+                        f"  > ✅ [Akshare成功] 成功获取 {symbol} 的 {len(df_final)} 条数据。"
                     )
                     return df_final
                 else:
                     return None
 
             except Exception as e:
-                tqdm.write(
-                    f"  ❌ [Akshare错误] 获取 {symbol} 数据时出错 (尝试 {attempt + 1}/{self.retries}): {e}"
-                )
+                # 【【【修改】】】
+                logging.error(
+                    f"  > ❌ [Akshare错误] 获取 {symbol} 数据时出错 (尝试 {attempt + 1}/{self.retries}): {e}",
+                    exc_info=True)
                 if attempt < self.retries - 1:
-                    tqdm.write(f"    将在 {self.delay} 秒后重试...")
+                    logging.warning(f"    > ⏳ 将在 {self.delay} 秒后重试...")
                     time.sleep(self.delay + random.uniform(0, 1))
                 else:
-                    tqdm.write(
-                        f"  ❌ [Akshare失败] 已达到最大重试次数，放弃使用 Akshare 获取该数据。")
+                    logging.error(
+                        f"  > ❌ [Akshare失败] 已达到最大重试次数，放弃使用 Akshare 获取 {symbol} 的该时段数据。"
+                    )
                     return None
         return None
 
@@ -113,9 +126,11 @@ class TushareDataProvider(BaseDataProvider):
         super().__init__(**kwargs)
         self.token = kwargs.get('token')
         if not self.token:
+            logging.critical("⛔ TushareDataProvider 需要一个有效的 'token' 参数。")
             raise ValueError("TushareDataProvider 需要一个有效的 'token' 参数。")
         self.pro = ts.pro_api(self.token)
         self.adjust = kwargs.get('adjust', "hfq")
+        logging.info("ℹ️ TushareDataProvider 已初始化。")
 
     def _convert_symbol_to_ts_code(self, symbol):
         if symbol.startswith('sh') or symbol.startswith('sz'):
@@ -125,8 +140,10 @@ class TushareDataProvider(BaseDataProvider):
 
     def fetch_data(self, symbol: str, start_date: str,
                    end_date: str) -> pd.DataFrame | None:
-        tqdm.write(
-            f"  [Tushare尝试] 正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据...")
+        # 【【【修改】】】
+        logging.info(
+            f"  > 📡 [Tushare尝试] 正在获取 {symbol} 从 {start_date} 到 {end_date} 的数据..."
+        )
         ts_code = self._convert_symbol_to_ts_code(symbol)
 
         for attempt in range(self.retries):
@@ -136,8 +153,9 @@ class TushareDataProvider(BaseDataProvider):
                                         end_date=end_date.replace('-', ''))
 
                 if df_raw is None or df_raw.empty:
-                    tqdm.write(
-                        f"  🟡 [Tushare警告] 在 {start_date} - {end_date} 范围内未返回 '{symbol}' 的有效数据。"
+                    # 【【【修改】】】
+                    logging.warning(
+                        f"  > 🟡 [Tushare警告] 在 {start_date} - {end_date} 范围内未返回 '{symbol}' 的有效数据。"
                     )
                     return None
 
@@ -188,19 +206,23 @@ class TushareDataProvider(BaseDataProvider):
                 df.set_index('date', inplace=True)
                 df.sort_index(ascending=True, inplace=True)
 
-                tqdm.write(f"  ✅ [Tushare成功] 成功获取 {symbol} 的 {len(df)} 条数据。")
+                # 【【【修改】】】
+                logging.info(
+                    f"  > ✅ [Tushare成功] 成功获取 {symbol} 的 {len(df)} 条数据。")
                 return df
 
             except Exception as e:
-                tqdm.write(
-                    f"  ❌ [Tushare错误] 获取 {symbol} 数据时出错 (尝试 {attempt + 1}/{self.retries}): {e}"
-                )
+                # 【【【修改】】】
+                logging.error(
+                    f"  > ❌ [Tushare错误] 获取 {symbol} 数据时出错 (尝试 {attempt + 1}/{self.retries}): {e}",
+                    exc_info=True)
                 if attempt < self.retries - 1:
-                    tqdm.write(f"    将在 {self.delay} 秒后重试...")
+                    logging.warning(f"    > ⏳ 将在 {self.delay} 秒后重试...")
                     time.sleep(self.delay + random.uniform(0, 1))
                 else:
-                    tqdm.write(
-                        f"  ❌ [Tushare失败] 已达到最大重试次数，放弃使用 Tushare 获取该数据。")
+                    logging.error(
+                        f"  > ❌ [Tushare失败] 已达到最大重试次数，放弃使用 Tushare 获取 {symbol} 的该时段数据。"
+                    )
                     return None
         return None
 
@@ -208,14 +230,13 @@ class TushareDataProvider(BaseDataProvider):
 class SQLiteDataProvider(BaseDataProvider):
     """
     使用另一个SQLite数据库作为数据源的具体实现。
-    它会连接到指定的源数据库文件，查询数据，然后返回给 DataProviderManager，
-    后者会将其存入回测专用的数据库中。
     """
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.source_db_path = kwargs.get('db_path')
         if not self.source_db_path:
+            logging.critical("⛔ SQLiteDataProvider 需要一个有效的 'db_path' 参数。")
             raise ValueError("SQLiteDataProvider 需要一个有效的 'db_path' 参数。")
 
         self.source_db_handler = DatabaseHandler(db_path=self.source_db_path)
@@ -234,14 +255,16 @@ class SQLiteDataProvider(BaseDataProvider):
         }
         self.column_mapping = kwargs.get('column_mapping', default_mapping)
 
-        tqdm.write(
-            f"  [SQLiteProvider初始化] 已连接到源数据库: {self.source_db_path}, 表: {self.table_name}"
+        # 【【【修改】】】
+        logging.info(
+            f"  > ℹ️ [SQLiteProvider初始化] 已连接到源数据库: {self.source_db_path}, 表: {self.table_name}"
         )
 
     def fetch_data(self, symbol: str, start_date: str,
                    end_date: str) -> pd.DataFrame | None:
-        tqdm.write(
-            f"  [SQLite适配器] 正在从表'{self.table_name}'获取 {symbol} ({start_date} to {end_date}) 的数据..."
+        # 【【【修改】】】
+        logging.info(
+            f"  > 📡 [SQLite适配器] 正在从表'{self.table_name}'获取 {symbol} ({start_date} to {end_date}) 的数据..."
         )
         try:
             # 1. 【查询修正】
@@ -250,7 +273,9 @@ class SQLiteDataProvider(BaseDataProvider):
             try:
                 int_symbol = int(symbol)
             except ValueError:
-                tqdm.write(f"  🟡 [SQLite警告] 股票代码 '{symbol}' 无法转换为整数，已跳过。")
+                # 【【【修改】】】
+                logging.warning(
+                    f"  > 🟡 [SQLite警告] 股票代码 '{symbol}' 无法转换为整数，已跳过。")
                 return None
 
             query = f"SELECT * FROM {self.table_name} WHERE ticker = ? AND _date BETWEEN ? AND ?"
@@ -258,11 +283,15 @@ class SQLiteDataProvider(BaseDataProvider):
             df_raw = self.source_db_handler.query_data(query, params=params)
 
             if df_raw is None or df_raw.empty:
-                tqdm.write(f"  🟡 [SQLite警告] 在源数据库中未找到 '{symbol}' 的有效数据。")
+                # 【【【修改】】】
+                logging.warning(
+                    f"  > 🟡 [SQLite警告] 在源数据库中未找到 '{symbol}' 的有效数据。")
                 return None
 
             # 2. 【数据转换】
-            tqdm.write(f"  [SQLite适配器] 已获取 {len(df_raw)} 条原始数据，正在进行格式转换...")
+            # 【【【修改】】】
+            logging.info(
+                f"  > ⚙️ [SQLite适配器] 已获取 {len(df_raw)} 条原始数据，正在进行格式转换...")
             df_transformed = pd.DataFrame()
             df_transformed['date'] = pd.to_datetime(
                 df_raw[self.column_mapping.get('date', '_date')],
@@ -290,29 +319,24 @@ class SQLiteDataProvider(BaseDataProvider):
 
             # =================================================================
             # 【【【2.5 新增 - 数据清洗】】】
-            # 在保存到数据库前，移除任何包含无效数据的行
             # =================================================================
-            tqdm.write(f"  [数据清洗] 清洗前共 {len(df_transformed)} 条数据。")
+            # 【【【修改】】】
+            logging.info(f"  > 🧼 [数据清洗] 清洗前共 {len(df_transformed)} 条数据。")
 
-            # 定义核心列，这些列在回测数据库中是 NOT NULL 的
             critical_cols = ['open', 'high', 'low', 'close', 'volume']
-
-            # 步骤 A: 丢弃任何核心列是 NaN (空值) 的行
             df_transformed.dropna(subset=critical_cols, inplace=True)
 
-            # 步骤 B: 丢弃价格 <= 0 或成交量 < 0 的行 (成交量为0有时是正常停牌，但为负一定是坏数据)
-            # 为严格起见，我们移除所有价格为0或负数的数据
             price_cols = ['open', 'high', 'low', 'close']
             for col in price_cols:
                 df_transformed = df_transformed[df_transformed[col] > 0]
-
             df_transformed = df_transformed[df_transformed['volume'] >= 0]
 
-            tqdm.write(f"  [数据清洗] 清洗后剩余 {len(df_transformed)} 条有效数据。")
+            # 【【【修改】】】
+            logging.info(f"  > 🧼 [数据清洗] 清洗后剩余 {len(df_transformed)} 条有效数据。")
 
-            # 如果清洗后数据为空，则直接返回
             if df_transformed.empty:
-                tqdm.write(f"  🟡 [SQLite警告] 清洗后，'{symbol}' 无剩余有效数据。")
+                # 【【【修改】】】
+                logging.warning(f"  > 🟡 [SQLite警告] 清洗后，'{symbol}' 无剩余有效数据。")
                 return None
             # =================================================================
             # 【数据清洗结束】
@@ -329,13 +353,15 @@ class SQLiteDataProvider(BaseDataProvider):
 
             df_transformed.set_index('date', inplace=True)
 
-            tqdm.write(
-                f"  ✅ [SQLite成功] 成功转换并清洗 {symbol} 的 {len(df_transformed)} 条数据。"
+            # 【【【修改】】】
+            logging.info(
+                f"  > ✅ [SQLite成功] 成功转换并清洗 {symbol} 的 {len(df_transformed)} 条数据。"
             )
             return df_transformed[final_columns]
 
         except Exception as e:
-            tqdm.write(f"  ❌ [SQLite错误] 处理源数据库数据时出错: {e}")
+            # 【【【修改】】】
+            logging.error(f"  > ❌ [SQLite错误] 处理源数据库数据时出错: {e}", exc_info=True)
             return None
 
     def __del__(self):
