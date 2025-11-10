@@ -3,8 +3,15 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
 
-# 数据库 (假设是sqlite)
+# 数据库
 database/
 *.db
 *.sqlite
@@ -17,5 +24,24 @@ logs/
 *.log
 *.html
 
-# macOS
+# 系统文件
 .DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境文件
+.env
+.env.local
+.env.*.local
+
+# 配置文件
+config.ini
+settings.ini
