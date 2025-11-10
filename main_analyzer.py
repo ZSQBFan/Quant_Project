@@ -70,8 +70,9 @@ FACTORS_TO_ANALYZE = [
 from factor_analysis.factors_complex import COMPLEX_FACTOR_REGISTRY
 
 COMPLEX_FACTORS_TO_RUN = [
-    # "IndNeu_Momentum",
+    "IndNeu_Momentum",
     "IndNeu_Reversal20D",
+    "IndNeu_VolumeCV",
     # "IndNeu_ADXDMI",
     # "MktNeu_RSI", # 示例: 如果您在 `factors_complex.py` 中定义了它
 ]
@@ -107,8 +108,8 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer
 #   而股票池和时间范围不变时，请将此项设为 True。
 #   这将跳过耗时的数据检查和下载流程，直接使用数据库中的现有数据。
 #
-# SKIP_DATA_PREPARATION = True
-SKIP_DATA_PREPARATION = False  # (正常运行时设为 False)
+SKIP_DATA_PREPARATION = True
+# SKIP_DATA_PREPARATION = False  # (正常运行时设为 False)
 #
 # ==============================================================================
 
