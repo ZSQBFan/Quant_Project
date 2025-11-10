@@ -1,4 +1,4 @@
-# factor_analysis/factor_report.py (已重构)
+# factor_analysis/factor_report.py (已重构 - 新增 Hexbin 图)
 
 import platform
 import pandas as pd
@@ -8,6 +8,7 @@ import base64
 from io import BytesIO
 from core import analysis_metrics as metrics
 import logging  # <- 【【【新增】】】
+from scipy.stats import linregress  # <--- 【【【【【【新增 IMPORT】】】】】】
 
 # 设置 Matplotlib 字体以支持中文
 try:
@@ -33,6 +34,9 @@ class FactorReport:
     【【重构日志】】:
     - 2025-11-09:
       - 引入 'logging' 模块，替换所有 'print' 语句。
+    - 2025-11-11: (用户要求)
+      - 新增 _plot_rank_return_scatter (Hexbin) 函数，
+      - 用于替代（或补充）不稳健的 pd.qcut 分层图。
     """
 
     def __init__(self,
@@ -73,10 +77,20 @@ class FactorReport:
             # 计算IC统计
             period_results['ic_stats'] = metrics.analyze_ic_statistics(
                 ic_series)
-            # 计算分层收益
-            period_results[
-                'quantile_returns'] = metrics.calculate_quantile_returns(
-                    self.factor_data, p)
+
+            # (注意: 即使 qcut 失败，我们仍然尝试运行它以获取它生成的"Q1"图)
+            try:
+                # 计算分层收益
+                period_results[
+                    'quantile_returns'] = metrics.calculate_quantile_returns(
+                        self.factor_data, p)
+            except Exception as e:
+                logging.error(
+                    f"❌ _run_analyses: calculate_quantile_returns 失败: {e}")
+                # 创建一个空的 Series 以防函数崩溃
+                period_results['quantile_returns'] = pd.Series(
+                    name=f'mean_return_{p}d')
+
             # 计算多空组合收益
             period_results[
                 'ls_returns'] = metrics.calculate_factor_portfolio_returns(
@@ -127,9 +141,19 @@ class FactorReport:
     def _plot_quantile_returns(self, period: int) -> str:
         """
         绘制分层收益条形图。
+        (注意: 此函数可能因 qcut 失败而只显示 Q1)
         """
         logging.debug(f"    > 🎨 正在绘制 {period}d 分层收益图...")
         quantile_returns = self.results[period]['quantile_returns']
+
+        # (安全检查，如果 qcut 失败)
+        if quantile_returns.empty:
+            logging.warning(
+                f"  > ⚠️ _plot_quantile_returns: {period}d 分层收益序列为空。")
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, '分层收益计算失败', ha='center', color='red')
+            return self._fig_to_base64(fig)
+
         fig, ax = plt.subplots(figsize=(10, 6))
 
         colors = ['#d62728' if x < 0 else '#2ca02c' for x in quantile_returns]
@@ -176,6 +200,98 @@ class FactorReport:
         ax.set_ylabel('累计净值')
         ax.legend()
 
+        return self._fig_to_base64(fig)
+
+    # ==============================================================================
+    # 【【【【【【 函数功能：新增的绘图函数 】】】】】】
+    # ==============================================================================
+    def _plot_rank_return_scatter(self, period: int) -> str:
+        """
+        绘制因子百分位排名 vs. 远期收益率的 Hexbin 密度图。
+        这是一个更稳健的、用于替代 qcut 分层图的可视化方法。
+        """
+        logging.debug(f"    > 🎨 正在绘制 {period}d 因子排名-收益率 Hexbin 图...")
+
+        return_col = f'forward_return_{period}d'
+
+        # 1. 准备数据
+        if 'factor_value' not in self.factor_data.columns or return_col not in self.factor_data.columns:
+            logging.warning(
+                f"  > ⚠️ [Hexbin] 缺少 'factor_value' 或 '{return_col}' 列。")
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, f'Hexbin 图数据缺失', ha='center', color='red')
+            return self._fig_to_base64(fig)
+
+        # (我们必须在 groupby 之前 .copy() 以避免 SettingWithCopyWarning)
+        data_subset = self.factor_data[['factor_value', return_col]].copy()
+
+        # 2. 计算截面百分位排名 (0.0 -> 1.0)
+        # (这是核心，它替代了 qcut)
+        # (self.factor_data 默认索引是 date)
+        data_subset['factor_rank_pct'] = data_subset.groupby(
+            level='date')['factor_value'].rank(pct=True)
+
+        # 3. 丢弃 NaN 值
+        plot_data = data_subset.dropna()
+
+        if plot_data.empty or len(plot_data) < 100:
+            logging.warning(
+                f"  > ⚠️ [Hexbin] {period}d 清理(dropna)后数据点不足 ({len(plot_data)})。"
+            )
+            fig, ax = plt.subplots()
+            ax.text(0.5, 0.5, f'Hexbin 图数据不足', ha='center', color='red')
+            return self._fig_to_base64(fig)
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+
+        # 4. 绘制 Hexbin 2D 密度图
+        # (gridsize 越小，格子越大；cmap 是颜色)
+        try:
+            im = ax.hexbin(
+                x=plot_data['factor_rank_pct'],
+                y=plot_data[return_col],
+                gridsize=50,  # 可根据数据点调整 (例如 30, 50, 100)
+                cmap='viridis',  # (黄-绿-蓝)
+                mincnt=1  # (显示至少有1个点的格子)
+            )
+            fig.colorbar(im, ax=ax, label='数据点密度')
+        except Exception as e:
+            logging.error(f"  > ❌ [Hexbin] 绘制 hexbin 时出错: {e}", exc_info=True)
+            ax.text(0.5, 0.5, f'Hexbin 绘图失败: {e}', ha='center', color='red')
+            return self._fig_to_base64(fig)
+
+        # 5. 绘制趋势线 (线性回归)
+        try:
+            x = plot_data['factor_rank_pct']
+            y = plot_data[return_col]
+
+            # (使用 scipy.stats.linregress 计算)
+            slope, intercept, r_value, p_value, std_err = linregress(x, y)
+
+            # (生成趋势线上的点)
+            trend_x = [0, 1]
+            trend_y = [intercept + slope * 0, intercept + slope * 1]
+
+            ax.plot(
+                trend_x,
+                trend_y,
+                color='#d62728',  # (红色)
+                linestyle='--',
+                linewidth=2,
+                label=f'趋势线 (R²: {r_value**2:.4f})')
+        except Exception as e:
+            logging.warning(f"  > ⚠️ [Hexbin] 无法计算趋势线: {e}")
+
+        # 6. 格式化图表
+        ax.set_title(f'{period}日 因子百分位排名 vs. 远期收益率 (Hexbin 图)', fontsize=16)
+        ax.set_xlabel('因子值截面百分位排名 (0.0 = 最差, 1.0 = 最好)')
+        ax.set_ylabel(f'{period}日 远期收益率')
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.axhline(0, color='gray', linestyle='--', alpha=0.7)
+        ax.set_xlim(0, 1)  # X 轴固定为 0 到 1
+        ax.legend()
+
+        fig.tight_layout()
         return self._fig_to_base64(fig)
 
     def generate_html_report(self, output_filename: str):
@@ -243,9 +359,26 @@ class FactorReport:
                 html += "<div class='plot'><h3>IC 序列与分布</h3>"
                 html += f"<img src='{ic_plot_b64}'></div>"
 
-                # 分层收益图表
+                # ==============================================================================
+                # 【【【【【【 HTML 块：新增的图表 】】】】】】
+                # ==============================================================================
+
+                # 新增图表：百分位收益率图
+                rank_return_plot_b64 = self._plot_rank_return_scatter(p)
+                html += "<div class='plot'><h3>因子百分位排名 vs. 收益率 (Hexbin)</h3>"
+                html += """
+                <p style="text-align:left; font-size: 0.9em; color: #555;">
+                此图显示了所有股票在所有日期上的 <b>因子百分位排名 (X轴)</b> 与 <b>远期收益率 (Y轴)</b> 之间的关系。<br>
+                图中的颜色表示该区域的数据点密度（颜色越亮，密度越高）。红色虚线是所有数据点的线性回归趋势线。
+                </p>
+                """
+                html += f"<img src='{rank_return_plot_b64}'></div>"
+
+                # ==============================================================================
+
+                # (保留) 分层收益图表 (这个可能会显示失败)
                 quantile_plot_b64 = self._plot_quantile_returns(p)
-                html += "<div class='plot'><h3>因子分层收益</h3>"
+                html += "<div class='plot'><h3>因子分层收益 (旧)</h3>"
                 html += f"<img src='{quantile_plot_b64}'></div>"
 
                 # 累计收益图表

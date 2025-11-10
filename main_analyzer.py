@@ -72,7 +72,7 @@ from factor_analysis.factors_complex import COMPLEX_FACTOR_REGISTRY
 COMPLEX_FACTORS_TO_RUN = [
     "IndNeu_Momentum",
     "IndNeu_Reversal20D",
-    # "IndNeu_VolumeCV",
+    "IndNeu_VolumeCV",
     # "IndNeu_ADXDMI",
     # "MktNeu_RSI", # 示例: 如果您在 `factors_complex.py` 中定义了它
 ]
