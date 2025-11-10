@@ -108,13 +108,13 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer
 #   而股票池和时间范围不变时，请将此项设为 True。
 #   这将跳过耗时的数据检查和下载流程，直接使用数据库中的现有数据。
 #
-SKIP_DATA_PREPARATION = True
-# SKIP_DATA_PREPARATION = False  # (正常运行时设为 False)
+# SKIP_DATA_PREPARATION = True
+SKIP_DATA_PREPARATION = False  # (正常运行时设为 False)
 #
 # ==============================================================================
 
 # --- 2a. 回测时间与收益周期 ---
-START_DATE = '2023-01-01'
+START_DATE = '2016-01-01'
 END_DATE = '2024-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 30, 60]  # 必须包含 1d 中配置的所有周期
 

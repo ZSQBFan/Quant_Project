@@ -168,9 +168,6 @@ def calculate_industry_neutral_reversal20d(
 #                   --- 3. 行业中性 ADXDMI (IndNeu_ADXDMI) ---
 # ==============================================================================
 
-# 【【【【【【 核心修改：移除 _calculate_base_adxdmi 】】】】】】
-# (我们不再需要那个辅助函数)
-
 
 def calculate_industry_neutral_adxdmi(all_data_df: pd.DataFrame) -> pd.Series:
     """
@@ -247,38 +244,6 @@ def calculate_industry_neutral_adxdmi(all_data_df: pd.DataFrame) -> pd.Series:
         adx.values > trend_threshold,
         direction_strength.values * trend_strength_weight.values, 0.0),
                          index=all_data_df.index)  # (确保索引与 all_data_df 一致)
-
-    # --- 2. 行业中性化 (使用通用辅助函数) ---
-    return _neutralize_by_industry(base_adx, all_data_df['industry'],
-                                   factor_name)
-
-
-def calculate_industry_neutral_adxdmi(all_data_df: pd.DataFrame) -> pd.Series:
-    """
-    计算【行业中性 ADX/DMI 因子】
-    """
-    factor_name = "IndNeu_ADXDMI"
-    cols_needed = ['industry', 'high', 'low', 'close']
-    if not all(col in all_data_df.columns for col in cols_needed):
-        logging.error(f"❌ [{factor_name}] 无法计算：缺少必要列 {cols_needed}。")
-        return None
-
-    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
-
-    # --- 1. 计算基础 ADXDMI 因子 (p=14, t=20) ---
-    logging.info(f"      > (1/2) 正在计算基础 {factor_name} (p=14, t=20)...")
-    period = 14
-    trend_threshold = 20
-
-    base_adx = all_data_df.groupby(
-        level='asset'
-    ).apply(lambda df: _calculate_base_adxdmi(
-        df.droplevel('asset'), period=period, trend_threshold=trend_threshold))
-    if isinstance(base_adx.index, pd.MultiIndex):
-        if 'asset' in base_adx.index.names:
-            base_adx = base_adx.swaplevel().sort_index()
-        else:
-            base_adx = base_adx.reset_index(level=0, drop=True).sort_index()
 
     # --- 2. 行业中性化 (使用通用辅助函数) ---
     return _neutralize_by_industry(base_adx, all_data_df['industry'],
