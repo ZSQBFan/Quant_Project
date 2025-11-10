@@ -1,4 +1,4 @@
-# logger_config.py
+# logger_config.py (已重构，使用单一控制变量)
 import logging
 import sys
 import os
@@ -32,6 +32,23 @@ def setup_logging(log_dir='logs', log_prefix='run'):
         log_dir (str, optional): 存放日志文件的目录。默认为 'logs'。
         log_prefix (str, optional): 日志文件名的前缀。默认为 'run'。
     """
+
+    # ======================================================================
+    # 【【【【【【   日志级别“总开关”   】】】】】】
+    #
+    #   您现在只需要修改这【唯一】一行代码，即可控制所有
+    #   （根日志、文件、控制台）的日志级别。
+    #
+    #   可选级别:
+    #   - logging.DEBUG    (最详细，用于诊断)
+    #   - logging.INFO     (标准，用于看流程)
+    #   - logging.WARNING  (只看警告和错误)
+    #   - logging.ERROR    (只看错误)
+    #
+    GLOBAL_LOG_LEVEL = logging.DEBUG
+    #
+    # ======================================================================
+
     # 1. 创建日志目录（如果不存在）
     os.makedirs(log_dir, exist_ok=True)
 
@@ -43,7 +60,7 @@ def setup_logging(log_dir='logs', log_prefix='run'):
 
     # 3. 获取根日志记录器并配置
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(GLOBAL_LOG_LEVEL)  # <-- 【【【使用“总开关”】】】
 
     if logger.hasHandlers():
         logger.handlers.clear()
@@ -58,13 +75,13 @@ def setup_logging(log_dir='logs', log_prefix='run'):
     file_handler = logging.FileHandler(log_file_path,
                                        mode='w',
                                        encoding='utf-8')
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(GLOBAL_LOG_LEVEL)  # <-- 【【【使用“总开关”】】】
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
     # 6. 创建 Tqdm 处理器，用于在控制台输出
     tqdm_handler = TqdmLoggingHandler()
-    tqdm_handler.setLevel(logging.INFO)
+    tqdm_handler.setLevel(GLOBAL_LOG_LEVEL)  # <-- 【【【使用“总开关”】】】
     tqdm_handler.setFormatter(formatter)
     logger.addHandler(tqdm_handler)
 

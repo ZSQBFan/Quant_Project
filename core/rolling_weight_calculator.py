@@ -1,4 +1,4 @@
-# factor_analysis/rolling_weight_calculator.py (已重构)
+# core/rolling_weight_calculator.py (已重构)
 import pandas as pd
 import numpy as np
 from . import analysis_metrics as metrics

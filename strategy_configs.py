@@ -166,7 +166,7 @@ ROLLING_ICIR_STRATEGY = StrategyConfig(
             'Reversal20D': 'ir_10d',  # 反转因子用10日滚动IR
             'IndNeu_Momentum': 'ir_30d',  # 动量因子用30日滚动IR
             'IndNeu_Reversal20D': 'ir_10d',
-            'IndNeu_VolumeCV': 'ir_10d',  # (例如, 20d IR)
+            'IndNeu_VolumeCV': 'ir_10d',
             'IndNeu_ADXDMI': 'ic_mean_10d'
         }
     })

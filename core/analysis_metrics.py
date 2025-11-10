@@ -1,4 +1,4 @@
-# factor_analysis/analysis_metrics.py (已重构)
+# core/analysis_metrics.py (已重构)
 
 import pandas as pd
 import numpy as np
@@ -71,10 +71,6 @@ def calculate_quantile_returns(factor_data: pd.DataFrame,
                                quantiles: int = 5) -> pd.Series:
     """
     计算因子分层收益。（已增强对无法分层情况的处理）
-    
-    【【重构日志】】:
-    - 2025-11-09:
-      - 引入 'logging' 模块，替换 'print' 语句。
     """
     return_col = f'forward_return_{period}d'
 

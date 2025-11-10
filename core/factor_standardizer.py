@@ -1,4 +1,4 @@
-# factor_standardizer.py (已重构)
+# core/factor_standardizer.py (已重构)
 import pandas as pd
 import logging  # <- 【【【新增】】】
 
