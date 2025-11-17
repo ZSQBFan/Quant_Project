@@ -174,31 +174,96 @@ class FactorReport:
 
     def _plot_cumulative_factor_return(self, period: int) -> str:
         """
-        绘制多空组合与基准的累计收益曲线。
-        """
-        logging.debug(f"    > 🎨 正在绘制 {period}d 累计收益图...")
-        ls_returns = self.results[period]['ls_returns']
-        cumulative_returns = (1 + ls_returns).cumprod()
+        【【【核心修改】】】
+        绘制基于重叠组合的多空策略近似累计收益曲线。
 
+        该方法为每个分析周期（period）独立计算一条收益曲线，逻辑如下：
+        1. 在每个交易日 `t`，根据因子值构建一个多空组合。
+        2. 该组合在未来 `period` 天的总收益，由 `forward_return_{period}d` 给出。
+        3. 我们将这个总收益除以 `period`，得到一个近似的“平均每日收益”。
+        4. 使用这个每日收益序列，通过复利计算（cumprod）生成累计净值曲线。
+
+        这种方法可以直观地比较不同持有期策略的表现，并与基准进行对比。
+        """
+        logging.debug(f"    > 🎨 正在为 {period}d 周期绘制近似累计收益图...")
+
+        return_col = f'forward_return_{period}d'
+
+        # 检查所需列是否存在
+        if 'factor_value' not in self.factor_data.columns or return_col not in self.factor_data.columns:
+            logging.warning(
+                f"  > ⚠️ [Cumulative Plot] 缺少 '{return_col}' 或 'factor_value' 列，无法为 {period}d 周期绘图。"
+            )
+            fig, ax = plt.subplots()
+            ax.text(0.5,
+                    0.5,
+                    f'数据缺失，无法生成{period}d收益图',
+                    ha='center',
+                    color='red')
+            return self._fig_to_base64(fig)
+
+        # 定义一个在 groupby 中应用的函数，用于计算每日的多空收益
+        def _calculate_daily_ls_return(df_group: pd.DataFrame) -> float:
+            try:
+                # 使用 qcut 进行分位数切割，构建多空组合
+                df_group['quantile'] = pd.qcut(df_group['factor_value'],
+                                               5,
+                                               labels=False,
+                                               duplicates='drop')
+
+                # 确保最高和最低分位数都存在
+                if 4 in df_group['quantile'].values and 0 in df_group[
+                        'quantile'].values:
+                    long_ret = df_group[df_group['quantile'] ==
+                                        4][return_col].mean()
+                    short_ret = df_group[df_group['quantile'] ==
+                                         0][return_col].mean()
+
+                    # 计算 period-day 的多空总收益
+                    total_ls_return = long_ret - short_ret
+
+                    # 【关键】将总收益平均分摊到 period 天，得到近似的每日收益
+                    # 对于0或1天的周期，直接使用总收益
+                    if period <= 1:
+                        return total_ls_return
+                    else:
+                        return total_ls_return / period
+                else:
+                    return 0.0  # 如果无法形成多空组合，则当日收益为0
+            except Exception:
+                # 如果 qcut 失败（例如当日股票数少于5），也返回0
+                return 0.0
+
+        # 对每一天的数据应用上述函数，得到每日的近似多空收益序列
+        daily_ls_returns = self.factor_data.groupby(
+            level='date').apply(_calculate_daily_ls_return)
+
+        # 使用每日收益序列计算累计净值
+        cumulative_returns = (1 + daily_ls_returns).cumprod()
+
+        # --- 开始绘图 ---
         fig, ax = plt.subplots(figsize=(12, 6))
 
         cumulative_returns.plot(ax=ax,
                                 grid=True,
-                                label='Long-Short Portfolio',
+                                label=f'多空组合 (持有期: {period}天)',
                                 color='royalblue')
 
+        # 绘制基准 (Buy & Hold) 曲线
         if self.benchmark_returns is not None:
+            # 对齐基准收益率的索引
             aligned_benchmark_returns = self.benchmark_returns.reindex(
-                ls_returns.index).fillna(0)
+                daily_ls_returns.index).fillna(0)
             cumulative_benchmark = (1 + aligned_benchmark_returns).cumprod()
             cumulative_benchmark.plot(ax=ax,
-                                      label='Benchmark (Buy & Hold)',
+                                      label='基准 (Buy & Hold)',
                                       linestyle='--',
                                       color='darkorange')
 
-        ax.set_title(f'{period}日 多空组合 vs. 基准累计收益曲线', fontsize=16)
+        ax.set_title(f'近似累计收益曲线 (分析周期: {period}天)', fontsize=16)
         ax.set_ylabel('累计净值')
         ax.legend()
+        ax.set_yscale('log')  # 使用对数坐标轴，更清晰地展示收益曲线的相对变化
 
         return self._fig_to_base64(fig)
 

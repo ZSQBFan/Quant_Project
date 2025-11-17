@@ -45,7 +45,7 @@ def setup_logging(log_dir='logs', log_prefix='run'):
     #   - logging.WARNING  (只看警告和错误)
     #   - logging.ERROR    (只看错误)
     #
-    GLOBAL_LOG_LEVEL = logging.DEBUG
+    GLOBAL_LOG_LEVEL = logging.INFO
     #
     # ======================================================================
 
