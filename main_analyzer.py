@@ -164,93 +164,83 @@ if __name__ == '__main__':
     # =====================
     # (setup_logging 必须在最开始调用)
     setup_logging(log_dir=LOG_DIR, log_prefix='factor_analysis')
-
     logging.info(f"\n{'='*60}\n--- 步骤 0: 初始化与配置校验 ---\n{'='*60}")
     logging.info("🏁 因子分析程序启动...")
 
-    # 1. 提取因子名称列表 (来自 1b)
-    FACTOR_NAMES = [f[0] for f in FACTORS_TO_ANALYZE]
-
-    # 2. 实例化标准化器 (来自 1e)
+    # 实例化标准化器
     STANDARDIZER = STANDARDIZER_CLASS()
     logging.info(f"✅ 标准化器已加载: {STANDARDIZER.__class__.__name__}")
-
-    # 3. 【【重构后的初始化逻辑】】 (来自 1a 和 strategy_configs.py)
     logging.info(f"⚙️ 正在加载策略: {STRATEGY_NAME}")
-
-    # 3a. 实例化合成器 (Combiner)
-    COMBINER = STRATEGY_CONFIG.create_combiner()
-    logging.info(f"✅ 合成器已加载: {STRATEGY_CONFIG.combiner_class.__name__}")
-
-    # 3b. 检查滚动逻辑 (Rolling)
-    _run_rolling = STRATEGY_CONFIG.is_rolling()
-    logging.info(f"ℹ️ 自动检测滚动逻辑: {_run_rolling}")
-
-    if _run_rolling:
-        logging.info(f"  > 滚动配置: {STRATEGY_CONFIG.rolling_config}")
-    else:
-        logging.info(f"  > 模式: 静态 (非滚动)")
     logging.info("✅ 策略配置加载完毕。")
-    # --- 【【初始化逻辑结束】】 ---
 
     # =====================
     # 1. 初始化数据管理器并准备数据
     # =====================
     logging.info(f"\n{'='*60}\n--- 步骤 1: 准备数据 ---\n{'='*60}")
-
-    # 1. 初始化 DataProviderManager
-    #    (这一步【必须】执行，以便后续步骤可以从数据库读取数据)
     logging.info("⚙️ 正在初始化 DataProviderManager...")
-    data_manager = DataProviderManager(
-        provider_configs=DATA_PROVIDERS_CONFIG,  # <- 【【重要】】
-        symbols=UNIVERSE,
-        start_date=START_DATE,
-        end_date=END_DATE,
-        db_path=BACKTEST_DB_PATH,  # <- 【【重要】】
-        num_checker_threads=16,
-        num_downloader_threads=16,
-        batch_size=200)
+    data_manager = DataProviderManager(provider_configs=DATA_PROVIDERS_CONFIG,
+                                       symbols=UNIVERSE,
+                                       start_date=START_DATE,
+                                       end_date=END_DATE,
+                                       db_path=BACKTEST_DB_PATH,
+                                       num_checker_threads=16,
+                                       num_downloader_threads=16,
+                                       batch_size=200)
 
-    # 2. 将 BENCHMARK (基准) 添加到 "待下载" 列表中
+    # 将基准添加到下载列表
     if BENCHMARK not in data_manager.symbols:
         data_manager.symbols.append(BENCHMARK)
         logging.info(f"  > 已将基准 {BENCHMARK} 添加到数据管理器任务列表。")
 
-    # 3. 【【【核心修改：跳过数据准备】】】
+    # 根据配置决定是否跳过数据准备
     if not SKIP_DATA_PREPARATION:
         logging.info("⚙️ 模式: 完整数据准备 (检查、下载、写入)...")
-        # 3. 执行【完整】数据准备 (ETL 流程)
         data_manager.prepare_data_for_universe()
         logging.info("✅ 完整数据准备流程 (ETL) 已完成。")
     else:
         logging.info(
             "🟡 【【跳过】】: 已按配置 (SKIP_DATA_PREPARATION=True) 跳过数据检查与下载流程。")
-        logging.info("ℹ️ 模式: 直接使用数据库现有数据...")
 
-    # 4. 获取基准数据，用于报告对比
+    # 获取基准数据用于报告对比
     logging.info(f"⚙️ 正在获取基准 '{BENCHMARK}' 数据用于报告对比...")
     benchmark_df = data_manager.get_dataframe(BENCHMARK)
     if benchmark_df is None or benchmark_df.empty:
-        logging.warning(f"⚠️ 警告: 未能获取到基准 '{BENCHMARK}' 的数据。报告中将不包含基准对比。")
+        logging.warning(f"⚠️ 警告: 未能获取到基准 '{BENCHMARK}' 的数据。")
     else:
         logging.info(f"✅ 成功获取基准 '{BENCHMARK}' 数据。")
 
-    # =====================
-    # 2. 计算所有因子的原始值和未来收益
-    # =====================
-    all_factors_dfs = {}  # <-- 将存储【所有】(Type 1 和 2) 的因子 Series
-    future_returns_df = None
-
-    logging.info(
-        f"\n{'='*60}\n--- 步骤 2: 计算所有指定因子的原始值 (Type 1 因子) ---\n{'='*60}")
-
-    # 1. 准备股票池
+    # 定义用于因子计算的有效股票池（排除基准）
     active_universe = data_manager.symbols.copy()
     if BENCHMARK in active_universe:
         active_universe.remove(BENCHMARK)
         logging.info(f"  > 已从因子计算池中移除基准 {BENCHMARK}。")
 
-    # 2. 【【【步骤 2a: 计算基础因子 (Type 1)】】】
+    # ==============================================================================
+    # 【【【【【【 新增步骤 1.5: 统一计算未来收益率 】】】】】】
+    # 这是架构优化的核心：将收益率计算与因子计算完全分离。
+    # 无论后续运行何种因子，收益率（“答案”）都预先在这里一次性计算好。
+    # ==============================================================================
+    logging.info(f"\n{'='*60}\n--- 步骤 1.5: 预计算所有未来收益率 ---\n{'='*60}")
+    future_returns_df = data_manager.calculate_universe_forward_returns(
+        universe=active_universe,
+        forward_return_periods=FORWARD_RETURN_PERIODS)
+    if future_returns_df is None or future_returns_df.empty:
+        logging.critical("⛔ 致命错误: 未能计算出未来收益率，后续分析无法进行。程序终止。")
+        sys.exit()
+
+    # 将 date 设为索引以优化后续合并性能
+    future_returns_df.set_index('date', inplace=True)
+    logging.info(f"✅ 未来收益率预计算完成。")
+
+    # =====================
+    # 2. 计算所有因子的原始值
+    # =====================
+    all_factors_dfs = {}
+    all_data_df = None
+
+    logging.info(f"\n{'='*60}\n--- 步骤 2: 计算所有指定因子的原始值 ---\n{'='*60}")
+
+    # --- 步骤 2a: 计算基础因子 (Type 1) ---
     if not FACTORS_TO_ANALYZE:
         logging.info("ℹ️ (跳过: 未在 1b 中配置基础因子)")
     else:
@@ -258,359 +248,140 @@ if __name__ == '__main__':
             logging.info(
                 f"⚙️ 正在启动 (Type 1) 计算器: {factor_name} (参数: {factor_params})..."
             )
-
-            # 【【【【【【 核心修正 1 】】】】】】
-            # 将 data_manager 实例替换为它所包含的配置
-            # 以匹配 factor_calculator.py 的新 __init__ 签名
+            # 【【【修改】】】: FactorCalculator 不再需要 forward_return_periods 参数
             calculator = FactorCalculator(
-                provider_configs=data_manager.provider_configs,  # <- 【【修正】】
-                db_path=BACKTEST_DB_PATH,  # <- 【【修正】】
+                provider_configs=data_manager.provider_configs,
+                db_path=BACKTEST_DB_PATH,
                 universe=active_universe,
                 start_date=START_DATE,
                 end_date=END_DATE,
                 factor_name=factor_name,
                 factor_params=factor_params,
-                forward_return_periods=FORWARD_RETURN_PERIODS,
-                num_threads=FACTOR_CALC_PROCESSES  # (这个参数名在内部被映射为进程数)
-            )
-            # 【【【【【【 修正结束 】】】】】】
+                num_threads=FACTOR_CALC_PROCESSES)
+            # 【【【修改】】】: 调用新的、更纯粹的 calculate_factor 方法
+            factor_data_df = calculator.calculate_factor()
 
-            factor_data_df = calculator.calculate_factor_and_returns()
+            if not factor_data_df.empty:
+                # 【【【修改】】】: 不再有从这里获取 future_returns_df 的逻辑
+                factor_series = factor_data_df.set_index(
+                    'asset', append=True)['factor_value']
+                factor_series.name = factor_name
+                all_factors_dfs[factor_name] = factor_series.sort_index()
+                logging.info(f"✅ 成功计算并存储 (Type 1) 因子: {factor_name}")
 
-            if factor_data_df.empty:
-                logging.warning(f"❌ 警告: 未能为因子 {factor_name} 生成有效数据，已跳过。")
-                continue
-
-            # 【重要】将因子 Series (MultiIndex) 存入 all_factors_dfs
-            factor_series = factor_data_df.set_index(
-                'asset', append=True)['factor_value']
-            factor_series.name = factor_name
-            all_factors_dfs[factor_name] = factor_series.sort_index()
-            logging.info(f"✅ 成功计算并存储 (Type 1) 因子: {factor_name}")
-
-            if future_returns_df is None:
-                logging.info("  > 正在缓存未来收益数据...")
-                return_cols = ['asset'] + [
-                    f'forward_return_{p}d' for p in FORWARD_RETURN_PERIODS
-                ]
-                future_returns_df = factor_data_df[return_cols].reset_index()
-
-    # 3. 【【【步骤 2.5: 计算复合因子 (Type 2)】】】
-    logging.info(
-        f"\n{'='*60}\n--- 步骤 2.5: 计算所有指定因子的复合值 (Type 2 因子) ---\n{'='*60}")
+    # --- 步骤 2b: 计算复合因子 (Type 2) ---
     if not COMPLEX_FACTORS_TO_RUN:
         logging.info("ℹ️ (跳过: 未在 1c 中配置复合因子)")
     else:
-        logging.info("⚙️ 步骤 2.5a: 加载【全部】股票的日线数据 (用于复合计算)...")
-        # (进度条在 data_manager.get_all_data_for_universe 内部)
+        logging.info("⚙️ 正在准备 (Type 2) 复合因子计算所需的全量数据...")
         all_data_df = data_manager.get_all_data_for_universe(active_universe)
 
         if all_data_df is None:
             logging.error("❌ 错误: 无法加载复合因子所需的基础数据，已跳过。")
         else:
-            # 步骤 2.5b: (可选) 加载并合并截面数据
             if LOAD_INDUSTRY_DATA:
-                logging.info("⚙️ 步骤 2.5b: (按配置) 正在加载并合并行业数据 ('stock_kind')...")
-                try:
-                    industry_df = data_manager.get_industry_mapping()
-                    if industry_df is not None:
-                        # 将 (asset, industry) 合并到 ('date', 'asset') 的主数据中
-                        all_data_df = all_data_df.reset_index().merge(
-                            industry_df, on='asset',
-                            how='left').set_index(['date',
-                                                   'asset']).sort_index()
-                        logging.info("  > ✅ 行业数据合并完成。")
-                    else:
-                        logging.warning("  > ⚠️ 警告: 未能从 'stock_kind' 加载行业数据。")
-                except AttributeError:
-                    logging.error(
-                        "  > ❌ 错误: 'get_industry_mapping' 函数未在 DataProviderManager 中定义。"
-                    )
-
-            # (未来可以在此合并 'market_cap' 等)
-
-            # 步骤 2.5c: 循环计算
-            logging.info(
-                f"⚙️ 步骤 2.5c: 开始计算 {len(COMPLEX_FACTORS_TO_RUN)} 个复合因子...")
-
-            # (使用 tqdm 包裹循环)
-            tqdm_loop = tqdm(
-                COMPLEX_FACTORS_TO_RUN,
-                desc="[主循环] 计算复合因子",
-                ncols=100,
-                leave=False,
-                file=sys.stdout  # (保持与 logger_config.py 一致)
-            )
-
-            for factor_key in tqdm_loop:
-                tqdm_loop.set_description(f"[主循环] 复合因子 ({factor_key})")
-
-                if factor_key in COMPLEX_FACTOR_REGISTRY:
-                    calc_func = COMPLEX_FACTOR_REGISTRY[factor_key]
-
-                    # 【核心】调用复合计算函数
-                    complex_factor_series = calc_func(all_data_df)
-
-                    if complex_factor_series is not None:
-                        logging.debug(f"    > ✅ 成功计算 (Type 2): {factor_key}")
-                        all_factors_dfs[
-                            factor_key] = complex_factor_series.sort_index()
+                logging.info("  > 正在加载并合并行业数据...")
+                industry_df = data_manager.get_industry_mapping()
+                if industry_df is not None:
+                    # 【【【修复】】】: 采用正确的合并与索引重建流程，确保 all_data_df 结构正确
+                    all_data_df = all_data_df.reset_index().merge(
+                        industry_df, on='asset',
+                        how='left').set_index(['date', 'asset']).sort_index()
+                    all_data_df['industry'] = all_data_df.groupby(
+                        level='asset')['industry'].ffill().bfill()
+                    logging.info("  > ✅ 行业数据合并并重建索引完成。")
                 else:
-                    logging.warning(f"  > ❌ 警告: 复合因子 '{factor_key}' 在 "
-                                    f"factors_complex.py 中未注册，已跳过。")
+                    logging.warning("  > ⚠️ 警告: 未能从 'stock_kind' 加载行业数据。")
 
-            logging.info("✅ 所有复合因子计算完毕。")
+            for factor_name in COMPLEX_FACTORS_TO_RUN:
+                if factor_name in COMPLEX_FACTOR_REGISTRY:
+                    logging.info(f"⚙️ 正在计算 (Type 2) 复合因子: {factor_name}...")
+                    factor_func = COMPLEX_FACTOR_REGISTRY[factor_name]
+                    # 【【【修复】】】: 复合因子函数是独立的，只需 all_data_df
+                    factor_series = factor_func(all_data_df)
+                    factor_series.name = factor_name
+                    all_factors_dfs[factor_name] = factor_series.sort_index()
+                    logging.info(f"✅ 成功计算并存储 (Type 2) 因子: {factor_name}")
 
-    # 4. 【【【步骤 2.6: 检查未来收益 (处理边界情况)】】】
-    if future_returns_df is None:
-        if not all_factors_dfs:
-            logging.critical("⛔ 错误: 未计算出任何 (Type 1 或 Type 2) 因子数据。程序终止。")
-            exit()
-        else:
-            logging.warning("⚠️ 警告: 未计算未来收益 (因为 Type 1 因子被跳过)。")
-            logging.info("  > ⚙️ 正在【重新】运行一个基础计算器以获取未来收益...")
-
-            # 【【【【【【 核心修正 2 】】】】】】
-            temp_calc = FactorCalculator(
-                provider_configs=data_manager.provider_configs,  # <- 【【修正】】
-                db_path=BACKTEST_DB_PATH,  # <- 【【修正】】
-                universe=active_universe,
-                start_date=START_DATE,
-                end_date=END_DATE,
-                factor_name='RSI',
-                factor_params={'rsi_period': 14},
-                forward_return_periods=FORWARD_RETURN_PERIODS,
-                num_threads=FACTOR_CALC_PROCESSES)
-            # 【【【【【【 修正结束 】】】】】】
-
-            logging.info("  > ⚙️ 正在为所有股票计算未来收益...")
-            all_data_df_with_returns = temp_calc.calculate_factor_and_returns(
-                run_factor_calc=False  # (仅计算收益)
-            )
-
-            if all_data_df_with_returns.empty:
-                logging.critical("  > ❌ 致命错误: 无法补算未来收益。程序终止。")
-                exit()
-
-            return_cols = ['asset'] + [
-                f'forward_return_{p}d' for p in FORWARD_RETURN_PERIODS
-            ]
-            future_returns_df = all_data_df_with_returns[
-                return_cols].reset_index()
-            logging.info("  > ✅ 未来收益已补算。")
+    # 【【【移除】】】: 之前为了修复bug而增加的“保险”补算逻辑已不再需要。
 
     # =====================
-    # 3. 核心分析流程：单因子 vs 多因子 (静态/滚动)
+    # 3. 因子合并与分析
     # =====================
     final_factor_data_df = pd.DataFrame()
     final_factor_name = ""
 
-    # 1. 动态生成最终的 FACTOR_NAMES 列表
     FACTOR_NAMES = list(all_factors_dfs.keys())
     logging.info(f"\n{'='*60}\n--- 步骤 3: 因子合并与分析 ---\n{'='*60}")
     logging.info(f"ℹ️ 即将合并的【所有】因子: {FACTOR_NAMES}")
 
-    if len(FACTOR_NAMES) > 1:
+    if not FACTOR_NAMES:
+        logging.warning("⚠️ 没有任何因子被计算，分析流程终止。")
+    elif len(FACTOR_NAMES) == 1:
+        logging.info("ℹ️ 只有一个因子，直接进入报告生成阶段。")
+        final_factor_name = FACTOR_NAMES[0]
+        final_factor_series = all_factors_dfs[final_factor_name]
+        combined_factors_df = final_factor_series.to_frame()
+    else:
         # --- 多因子合成路径 ---
-        logging.info("⚙️ 步骤 3a: 合并所有 (Type 1 和 Type 2) 因子数据...")
-
-        all_factors_df_list = []
-        for factor_name, factor_series in all_factors_dfs.items():
-            df = factor_series.to_frame().reset_index()
-            all_factors_df_list.append(df)
-
-        combined_factors_df = all_factors_df_list[0]
-
-        if len(all_factors_df_list) > 1:
-            for i in range(1, len(all_factors_df_list)):
-                combined_factors_df = pd.merge(combined_factors_df,
-                                               all_factors_df_list[i],
-                                               on=['date', 'asset'],
-                                               how='outer')
+        logging.info("⚙️ 步骤 3a: 合并所有因子数据...")
+        combined_factors_df = pd.concat(all_factors_dfs.values(),
+                                        axis=1,
+                                        keys=all_factors_dfs.keys())
+        if isinstance(combined_factors_df.columns, pd.MultiIndex):
+            combined_factors_df.columns = combined_factors_df.columns.droplevel(
+                1)
+        combined_factors_df = combined_factors_df[FACTOR_NAMES]
         logging.info(f"  > ✅ 成功合并 {len(FACTOR_NAMES)} 个因子。")
 
-        combined_factors_df = combined_factors_df.set_index(['date', 'asset'
-                                                             ]).sort_index()
-
-        # 【【【核心逻辑分支：静态 vs 滚动】】】
-        if not _run_rolling:
-            # --- 分支A: 静态权重逻辑 (GroupBy) ---
-            logging.info(f"ℹ️ 模式: 静态 (GroupBy 模式)")
+        # 核心逻辑分支：静态 vs 滚动
+        if not STRATEGY_CONFIG.is_rolling():
+            # 分支A: 静态权重逻辑
+            logging.info(
+                f"ℹ️ 模式: 静态合成 (策略: {STRATEGY_CONFIG.combiner_class.__name__})")
+            combiner = STRATEGY_CONFIG.combiner_class(
+                **STRATEGY_CONFIG.combiner_kwargs)
             logging.info(
                 f"⚙️ 步骤 3b: 执行截面标准化 ({STANDARDIZER.__class__.__name__})...")
-
             standardized_factors_df = combined_factors_df.groupby(
-                level='date').apply(lambda group: STANDARDIZER.standardize(
-                    group.droplevel('date')[FACTOR_NAMES]))
-            logging.info("    > ✅ (静态) 标准化完成。")
-
-            logging.info(
-                f"⚙️ 步骤 3c: 执行因子合成 ({COMBINER.__class__.__name__})...")
-
+                level='date').apply(lambda x: STANDARDIZER.standardize(x))
+            logging.info("⚙️ 步骤 3c: 执行因子合成...")
             composite_factor_series = standardized_factors_df.groupby(
-                level='date').apply(
-                    lambda group: COMBINER.combine(group.droplevel('date')))
-            logging.info("    > ✅ (静态) 因子合成完成。")
-
+                level='date').apply(lambda x: combiner.combine(x))
             composite_factor_series.name = 'factor_value'
-            final_factor_name = f"CompositeFactor_{STRATEGY_NAME}_Static"
-
+            final_factor_name = f"CompositeFactor_{STRATEGY_NAME}"
         else:
-            # --- 分支B: 动态滚动权重逻辑 (逐日循环) ---
-            logging.info(f"ℹ️ 模式: 动态滚动 (逐日循环模式)")
-
-            logging.info("⚙️ 步骤 3b: 初始化滚动计算器...")
+            # 分支B: 动态滚动权重逻辑
+            logging.info(f"ℹ️ 模式: 动态滚动 (每日权重计算模式)")
             roller = STRATEGY_CONFIG.create_rolling_calculator(
                 forward_return_periods=FORWARD_RETURN_PERIODS,
                 factor_names=FACTOR_NAMES)
-            if roller is None:
-                logging.critical(f"⛔ 策略 {STRATEGY_NAME} 配置错误：应为滚动模式但无法创建滚动器。")
-                raise Exception(f"策略 {STRATEGY_NAME} 配置错误：无法创建滚动器。")
-
             logging.info("⚙️ 步骤 3c: 准备滚动数据 (合并因子与未来收益)...")
-            all_data_merged = pd.merge(combined_factors_df.reset_index(),
-                                       future_returns_df,
-                                       on=['date', 'asset'],
-                                       how='inner')
-            all_data_merged.set_index(['date', 'asset'],
-                                      inplace=True,
-                                      drop=False)
-            all_data_merged.sort_index(inplace=True)
-            logging.info(f"  > ✅ 滚动数据准备完毕，共 {len(all_data_merged)} 条合并记录。")
-
-            trading_dates = all_data_merged.index.get_level_values(
-                'date').unique().sort_values()
-
-            all_dates_series = pd.Series(index=trading_dates).index
-            rebalance_freq = STRATEGY_CONFIG.get_rolling_param(
-                'REBALANCE_FREQUENCY')
-            rebalance_dates_ideal = pd.date_range(start=trading_dates.min(),
-                                                  end=trading_dates.max(),
-                                                  freq=rebalance_freq)
-
-            rebalance_dates_idx = all_dates_series.searchsorted(
-                rebalance_dates_ideal)
-            rebalance_dates = all_dates_series[rebalance_dates_idx[
-                rebalance_dates_idx < len(all_dates_series)]].date
-            logging.info(
-                f"  > ℹ️ 调仓频率: {rebalance_freq} (共 {len(rebalance_dates)} 个调仓日)"
-            )
-
-            all_composite_scores = []
-            rolling_window_days = STRATEGY_CONFIG.get_rolling_param(
-                'ROLLING_WINDOW_DAYS')
-            logging.info(f"  > ℹ️ 回看窗口: {rolling_window_days} 天")
-
-            logging.info(f"⚙️ 步骤 3d: 执行滚动标准化与合成 (共 {len(trading_dates)} 天)...")
-
-            # 【【【使用 TQDM 包裹循环】】】
-            for current_date in tqdm(
-                    trading_dates, desc="[主循环] 滚动回测中", ncols=100,
-                    file=sys.stdout):  # (保持与 logger_config.py 一致)
-
-                logging.debug(
-                    f"  > 正在处理日期: {current_date.strftime('%Y-%m-%d')}")
-
-                # 1. 【调仓日】: 重新计算和更新权重
-                if current_date.date() in rebalance_dates:
-                    # (这个 INFO 日志会导致进度条跳动，但它是必要的低频信息)
-                    logging.info(
-                        f"  >  pivotal: {current_date.strftime('%Y-%m-%d')} 是调仓日，重新计算权重..."
-                    )
-                    window_end_date = current_date
-                    window_start_date = window_end_date - pd.DateOffset(
-                        days=rolling_window_days)
-
-                    historical_window_mask = (
-                        (all_data_merged.index.get_level_values('date')
-                         >= window_start_date) &
-                        (all_data_merged.index.get_level_values('date')
-                         < window_end_date))
-                    historical_window = all_data_merged.loc[
-                        historical_window_mask]
-
-                    if not historical_window.empty:
-                        logging.debug(
-                            f"    > 正在调用 roller.calculate_new_weights...")
-                        new_weights = roller.calculate_new_weights(
-                            historical_window)
-                        COMBINER.update_weights(new_weights)
-                    else:
-                        logging.warning(
-                            f"    > ⚠️ 警告: {current_date} 的历史窗口数据为空，无法更新权重。")
-
-                # 2. 【每日】: 使用【当前】权重进行合成
-                todays_data_slice = combined_factors_df[FACTOR_NAMES].loc[
-                    current_date]
-                standardized_slice = STANDARDIZER.standardize(
-                    todays_data_slice)
-                composite_score_series = COMBINER.combine(standardized_slice)
-
-                composite_score_series.index = pd.MultiIndex.from_product(
-                    [[current_date], composite_score_series.index],
-                    names=['date', 'asset'])
-                all_composite_scores.append(composite_score_series)
-
-            logging.info("    > ✅ 滚动合成完成。")
-            if not all_composite_scores:
-                logging.error("  > ❌ 错误：滚动合成未产生任何结果。")
-                composite_factor_series = pd.Series(name='factor_value')
-            else:
-                composite_factor_series = pd.concat(all_composite_scores)
-                composite_factor_series.name = 'factor_value'
-
-            final_factor_name = f"CompositeFactor_{STRATEGY_NAME}_Rolling"
-
-        # --- 滚动逻辑分支结束 ---
-
-        logging.info("⚙️ 步骤 3e: 准备最终报告数据...")
-        if composite_factor_series.empty:
-            logging.error("  > ❌ 错误：因子合成结果为空，无法生成报告。")
-        else:
-            final_factor_data_df = pd.merge(
-                composite_factor_series.reset_index(),
-                future_returns_df,
+            all_data_merged = pd.merge(
+                combined_factors_df.reset_index(),
+                future_returns_df.reset_index(
+                ),  # future_returns_df 的索引是 date, reset 后变为列
                 on=['date', 'asset'],
                 how='inner')
-            final_factor_data_df.set_index('date', inplace=True)
-            logging.info("  > ✅ 最终报告数据准备完毕。")
+            all_data_merged.set_index(['date', 'asset'], inplace=True)
+            all_data_merged.sort_index(inplace=True)
+            logging.info(f"  > ✅ 滚动数据准备完毕，共 {len(all_data_merged)} 条合并记录。")
+            composite_factor_series = roller.calculate_composite_factor(
+                all_data_merged)
+            composite_factor_series.name = 'factor_value'
+            final_factor_name = f"CompositeFactor_{STRATEGY_NAME}_Rolling"
 
-    elif len(FACTOR_NAMES) == 1:
-        # --- 单因子路径 ---
-        logging.info(f"\n{'='*60}\n--- 步骤 3: 单因子评测流程 ---\n{'='*60}")
-        factor_name = FACTOR_NAMES[0]
-        final_factor_name = f"{factor_name}_Standardized"
-        logging.info(f"⚙️ 步骤 3a: 准备单因子数据: {factor_name}...")
+        combined_factors_df = composite_factor_series.to_frame()
 
-        raw_factor_series = all_factors_dfs[factor_name]
-        raw_factor_df_indexed = raw_factor_series.to_frame(name=factor_name)
-
-        logging.info(
-            f"⚙️ 步骤 3b: 执行截面标准化 ({STANDARDIZER.__class__.__name__})...")
-
-        def apply_standardization(group):
-            return STANDARDIZER.standardize(
-                group.droplevel('date')[[factor_name]])
-
-        standardized_factor_df = raw_factor_df_indexed.groupby(
-            level='date').apply(apply_standardization)
-        logging.info("    > ✅ (单因子) 标准化完成。")
-
-        standardized_factor_df.rename(columns={factor_name: 'factor_value'},
-                                      inplace=True)
-
-        logging.info("⚙️ 步骤 3c: 准备最终报告数据...")
-        final_factor_data_df = pd.merge(standardized_factor_df.reset_index(),
-                                        future_returns_df,
+    # --- 合并未来收益以生成报告 ---
+    if not combined_factors_df.empty:
+        final_factor_data_df = pd.merge(combined_factors_df.reset_index(),
+                                        future_returns_df.reset_index(),
                                         on=['date', 'asset'],
                                         how='inner')
+        final_factor_data_df.rename(
+            columns={'factor_value': final_factor_name}, inplace=True)
         final_factor_data_df.set_index('date', inplace=True)
-        logging.info("  > ✅ 最终报告数据准备完毕。")
-
-    else:
-        # (此分支在 步骤 2.6 中已被处理，但作为双重保险)
-        logging.critical("⛔ 未计算出任何有效的因子数据，程序终止。")
-        exit()
 
     # =====================
     # 4. 生成最终的因子分析报告
@@ -619,28 +390,23 @@ if __name__ == '__main__':
         logging.info(
             f"\n{'='*60}\n--- 步骤 4: 为最终因子 '{final_factor_name}' 生成分析报告 ---\n{'='*60}"
         )
+        final_report_df = final_factor_data_df.rename(
+            columns={final_factor_name: 'factor_value'})
+        final_report_df.dropna(subset=['factor_value'], inplace=True)
 
-        final_factor_data_df.dropna(inplace=True)
-        if final_factor_data_df.empty:
-            logging.warning(
-                f"  > ⚠️ 警告: 最终因子 '{final_factor_name}' 数据在清理(dropna)后为空。")
+        if final_report_df.empty:
+            logging.warning(f"  > ⚠️ 警告: 最终因子 '{final_factor_name}' 数据在清理后为空。")
         else:
-            logging.info(
-                f"  > ✅ 最终因子数据准备完成，共 {len(final_factor_data_df)} 条有效记录。")
-
+            logging.info(f"  > ✅ 最终因子数据准备完成，共 {len(final_report_df)} 条有效记录。")
             report_generator = FactorReport(
                 factor_name=final_factor_name,
-                factor_data=final_factor_data_df,
+                factor_data=final_report_df,
                 forward_return_periods=FORWARD_RETURN_PERIODS,
                 benchmark_data=benchmark_df)
-
             output_filename = os.path.join(OUTPUT_DIR,
                                            f"report_{final_factor_name}.html")
-
-            logging.info(f"⚙️ 正在生成 HTML 报告...")
-            # 【核心】生成 HTML 报告
+            logging.info(f"⚙️ 正在生成 HTML 报告至: {output_filename}")
             report_generator.generate_html_report(output_filename)
-            # (日志已移至 report_generator 内部)
 
     logging.info(f"\n{'='*60}")
     logging.info("🏁 所有因子分析流程执行完毕 🏁")

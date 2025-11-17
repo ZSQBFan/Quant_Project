@@ -16,6 +16,17 @@ from .trading_calendars import TushareTradingCalendar, AkshareTradingCalendar
 from .data_providers import AkshareDataProvider, TushareDataProvider, SQLiteDataProvider
 
 
+def _calculate_forward_returns(df: pd.DataFrame,
+                               periods: list) -> pd.DataFrame:
+    """计算单个资产的未来收益率。"""
+    df = df.sort_index()
+    for p in periods:
+        # 使用 shift(-p) 来获取未来第 p 天的价格
+        future_price = df['close'].shift(-p)
+        df[f'forward_return_{p}d'] = (future_price / df['close']) - 1
+    return df
+
+
 class DataProviderManager:
     """
     【生产者-消费者重构版】统一数据提供者管理器。
@@ -472,3 +483,39 @@ class DataProviderManager:
         except Exception as e:
             logging.error(f"  > ❌ 加载 'stock_kind' 时出错: {e}", exc_info=True)
             return None
+
+    def calculate_universe_forward_returns(
+            self, universe: list,
+            forward_return_periods: list) -> pd.DataFrame:
+        """
+        为股票池中的所有股票，一次性计算出全部的未来收益率。
+        这是新的、统一的收益率计算入口。
+        """
+        logging.info(f"⚙️ 正在为 {len(universe)} 只股票统一计算未来收益率...")
+
+        all_data = self.get_all_data_for_universe(universe)
+        if all_data is None or all_data.empty:
+            logging.error("❌ 无法加载用于计算未来收益的基础数据。")
+            return None
+
+        # 使用 groupby().apply() 高效地为每只股票计算未来收益
+        def apply_returns_calculation(group):
+            return _calculate_forward_returns(group, forward_return_periods)
+
+        # 在计算之前，确保数据是按时间和资产排序的
+        all_data = all_data.sort_index(level=['date', 'asset'])
+
+        # apply() 会保留原始索引，结果是一个多重索引的DataFrame
+        returns_df = all_data.groupby(
+            level='asset', group_keys=False).apply(apply_returns_calculation)
+
+        # 清理结果，只保留需要的列
+        return_cols = ['date', 'asset'] + [
+            f'forward_return_{p}d' for p in forward_return_periods
+        ]
+
+        # 将索引 ('date', 'asset') 转换为列
+        returns_df.reset_index(inplace=True)
+
+        logging.info("✅ 所有股票的未来收益率计算完毕。")
+        return returns_df[return_cols]
