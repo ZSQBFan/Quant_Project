@@ -91,7 +91,7 @@ LOAD_INDUSTRY_DATA = True
 #   【【重要配置】】
 #   您希望如何对因子值进行【截面标准化】？
 #
-from core.factor_standardizer import (CrossSectionalZScoreStandardizer,
+from strategies.standardizers import (CrossSectionalZScoreStandardizer,
                                       NoStandardizer,
                                       CrossSectionalQuantileStandardizer)
 # 【【请在这里三选一】】

@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import base64
 from io import BytesIO
-from core import analysis_metrics as metrics
+from factor_analysis import analysis_metrics as metrics
 import logging  # <- 【【【新增】】】
 from scipy.stats import linregress  # <--- 【【【【【【新增 IMPORT】】】】】】
 
