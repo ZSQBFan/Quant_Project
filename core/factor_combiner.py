@@ -2,6 +2,7 @@
 import pandas as pd
 import numpy as np
 import logging  # <- 【【【新增】】】
+from typing import Any
 
 
 class BaseFactorCombiner:
@@ -220,3 +221,58 @@ class FixedWeightCombiner(BaseFactorCombiner):
         # 4. 执行加权求和
         combined_score = (standardized_df * aligned_weights).sum(axis=1)
         return combined_score
+
+
+class AICombiner(BaseFactorCombiner):
+    """
+    【合成器: AI模型】
+    使用一个机器学习模型来合成因子。
+    这个合成器是“有状态的”，它的模型可以在回测过程中被外部（滚动训练器）更新。
+    """
+
+    def __init__(self, initial_model_path: str = None, **kwargs):
+        super().__init__(**kwargs)
+        self.model = None
+        if initial_model_path:
+            try:
+                self.model = joblib.load(initial_model_path)
+                logging.info(
+                    f"ℹ️ AICombiner 已初始化，并成功从 {initial_model_path} 加载初始模型。")
+            except Exception as e:
+                logging.warning(
+                    f"  > ⚠️ 加载初始AI模型 {initial_model_path} 失败: {e}，将等待首次训练。")
+        else:
+            logging.info("ℹ️ AICombiner 已初始化，未加载初始模型，等待首次训练...")
+
+    def update_model(self, new_model: Any):
+        """更新内部持有的模型对象。"""
+        if new_model:
+            self.model = new_model
+            logging.info("  > pivotal: AICombiner 的模型已更新。")
+
+    def update_weights(self, new_model: Any):
+        """
+        【【【兼容性接口】】】
+        为了与 main_analyzer.py 的滚动逻辑无缝对接，
+        我们将 update_weights 方法作为 update_model 的别名。
+        main_analyzer 调用此方法，传入的“权重”实际上是新的模型对象。
+        """
+        self.update_model(new_model)
+
+    def combine(self, standardized_df: pd.DataFrame) -> pd.Series:
+        if self.model is None:
+            logging.warning("  > ⚠️ [AICombiner] 模型尚未训练或加载，返回0作为合成值。")
+            return pd.Series(0, index=standardized_df.index)
+
+        try:
+            # 确保使用模型训练时的特征顺序，防止错误
+            if hasattr(self.model, 'feature_name_'):
+                X_today = standardized_df[self.model.feature_name_]
+            else:
+                X_today = standardized_df
+
+            composite_scores = self.model.predict(X_today)
+            return pd.Series(composite_scores, index=X_today.index)
+        except Exception as e:
+            logging.error(f"  > ❌ [AICombiner] 使用模型进行预测时出错: {e}")
+            return pd.Series(0, index=standardized_df.index)

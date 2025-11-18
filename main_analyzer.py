@@ -25,10 +25,11 @@ from strategy_configs import STRATEGY_REGISTRY
 
 # 【【请在这里选择您的策略名称 (从 strategy_configs.py 复制)】】
 # STRATEGY_NAME = "RollingICIR"
-STRATEGY_NAME = "RollingRegression"
+# STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
+STRATEGY_NAME = "AI_Periodic_Retrain"
 
 # --- (自动加载配置) ---
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
