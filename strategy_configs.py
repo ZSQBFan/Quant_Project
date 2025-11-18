@@ -51,18 +51,19 @@ class StrategyConfig:
 
 
 # --- 策略 1: 动态滚动 ICIR 加权 ---
-ROLLING_ICIR_STRATEGY = StrategyConfig(
-    combiner_class=DynamicWeightCombiner,
-    combiner_kwargs={'factor_weights': {}},
-    rolling_config={
-        'CALCULATOR_TYPE': 'ICIR',
-        'ROLLING_WINDOW_DAYS': 90,  # <-- 【【【修改】】】 回看窗口
-        'FACTOR_WEIGHTING_CONFIG': {
-            'Momentum': 'ic_mean_30d',
-            'Reversal20D': 'ir_30d',
-            'IndNeu_Momentum': 'ir_60d',
-        }
-    })
+ROLLING_ICIR_STRATEGY = StrategyConfig(combiner_class=DynamicWeightCombiner,
+                                       combiner_kwargs={'factor_weights': {}},
+                                       rolling_config={
+                                           'CALCULATOR_TYPE': 'ICIR',
+                                           'ROLLING_WINDOW_DAYS': 90,
+                                           'FACTOR_WEIGHTING_CONFIG': {
+                                               'Momentum': 'ic_mean_30d',
+                                               'Reversal20D': 'ir_30d',
+                                               'IndNeu_Momentum': 'ir_60d',
+                                               'IndNeu_Reversal20D': 'ir_30d',
+                                               'IndNeu_VolumeCV': 'ic_30d',
+                                           }
+                                       })
 
 # --- 策略 2: 静态固定权重 ---
 FIXED_WEIGHT_STRATEGY = StrategyConfig(combiner_class=FixedWeightCombiner,

@@ -24,8 +24,8 @@ import sys
 from strategy_configs import STRATEGY_REGISTRY
 
 # 【【请在这里选择您的策略名称 (从 strategy_configs.py 复制)】】
-STRATEGY_NAME = "RollingICIR"
-# STRATEGY_NAME = "RollingRegression"
+# STRATEGY_NAME = "RollingICIR"
+STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
