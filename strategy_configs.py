@@ -73,16 +73,18 @@ LIGHTGBM_STRATEGY = StrategyConfig(
                         model_params={
                             'objective': 'regression_l1',
                             'metric': 'rmse',
-                            'n_estimators': 200,
-                            'learning_rate': 0.05,
+                            'n_estimators': 300,
+                            'learning_rate': 0.03,
                             'num_leaves': 31,
-                            'max_depth': -1,
-                            'min_child_samples': 20,
+                            'max_depth': 6,
+                            'min_child_samples': 50,
                             'subsample': 0.8,
-                            'colsample_bytree': 0.8,
+                            'colsample_bytree': 0.7,
                             'random_state': 42,
                             'n_jobs': -1,
-                            'verbose': -1
+                            'verbose': -1,
+                            'reg_alpha': 0.1,
+                            'reg_lambda': 0.1
                         })
     })
 

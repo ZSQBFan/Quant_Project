@@ -25,7 +25,7 @@ if STRATEGY_NAME not in STRATEGY_REGISTRY:
     raise ValueError(f"策略 '{STRATEGY_NAME}' 未在 strategy_configs.py 中注册。")
 STRATEGY_CONFIG = STRATEGY_REGISTRY[STRATEGY_NAME]
 
-# --- 【【【新】】】 1b. 因子选择 (Factors to Analyze) ---
+# ---  1b. 因子选择 (Factors to Analyze) ---
 #
 #   现在您只需要列出因子名称。
 #   具体的参数 (params) 和数据依赖 (required_columns) 已在 factor_configs.py 中统一定义。
@@ -37,21 +37,20 @@ FACTORS_TO_RUN = [
     # 'Momentum',
     # 'Reversal20D',
     "IndNeu_Momentum",
-    # "IndNeu_Reversal20D",
-    # "IndNeu_VolumeCV",
-    # "IndNeu_EP",
-    "IndNeu_BP"
+    "IndNeu_Reversal20D",
+    "IndNeu_VolumeCV",
+    "IndNeu_EP",
+    # "IndNeu_BP"
     # "IndNeu_ROE",
     # "IndNeu_SalesGrowth",
-    # "IndNeu_CFOP",
-    # "IndNeu_GPM",
+    "IndNeu_CFOP",
+    "IndNeu_GPM",
     # "IndNeu_AssetTurnover",
     # "IndNeu_CurrentRatio",
 ]
 
 # --- 1d. 截面数据配置 (Cross-Sectional Data) ---
 #   【全局开关】: 是否在任何情况下都强制加载行业数据？
-#   (即使当前计算的因子不需要行业数据，如果您想在生成的报告中按行业分组查看，也需要开启此项)
 LOAD_INDUSTRY_DATA = False
 
 # --- 1e. 标准化器 (Standardizer) ---
