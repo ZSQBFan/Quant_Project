@@ -76,6 +76,70 @@ FACTOR_REGISTRY = {
     },
 
     # ==========================================================================
-    # 3. 基本面因子 (Category: simple - 虽然涉及财务数据，但计算逻辑通常是单只股票内部的)
+    # 3. 基本面因子
     # ==========================================================================
+    'IndNeu_EP': {
+        'category':
+        'complex',
+        'params': {},
+        'required_columns':
+        ['close', 'share_capital', 'net_profit_parent', 'industry'],
+        'description':
+        "行业中性的市盈率倒数 (E/P)"
+    },
+    'IndNeu_BP': {
+        'category':
+        'complex',
+        'params': {},
+        'required_columns':
+        ['close', 'share_capital', 'total_equity_parent', 'industry'],
+        'description':
+        "行业中性的市净率倒数 (B/P)"
+    },
+    'IndNeu_ROE': {
+        'category':
+        'complex',
+        'params': {},
+        'required_columns':
+        ['net_profit_parent', 'total_equity_parent', 'industry'],
+        'description':
+        "行业中性的净资产收益率 (ROE)"
+    },
+    'IndNeu_SalesGrowth': {
+        'category': 'complex',
+        'params': {
+            'window': 242
+        },  # 约一年交易日
+        'required_columns': ['total_revenue', 'industry'],
+        'description': "行业中性的营收同比增长率 (YoY)"
+    },
+    'IndNeu_CFOP': {
+        'category':
+        'complex',
+        'params': {},
+        'required_columns':
+        ['net_cash_flow_ops', 'close', 'share_capital', 'industry'],
+        'description':
+        "行业中性的经营现金流市价率 (CFO/P)"
+    },
+    'IndNeu_GPM': {
+        'category': 'complex',
+        'params': {},
+        'required_columns':
+        ['total_revenue', 'cost_of_goods_sold', 'industry'],
+        'description': "行业中性的毛利率 (Gross Profit Margin)"
+    },
+    'IndNeu_AssetTurnover': {
+        'category': 'complex',
+        'params': {},
+        'required_columns': ['total_revenue', 'total_assets', 'industry'],
+        'description': "行业中性的总资产周转率"
+    },
+    'IndNeu_CurrentRatio': {
+        'category': 'complex',
+        'params': {},
+        'required_columns':
+        ['current_assets', 'current_liabilities', 'industry'],
+        'description': "行业中性的流动比率 (偿债能力)"
+    },
 }

@@ -305,6 +305,198 @@ def calculate_industry_neutral_volume_cv(
 
 
 # ==============================================================================
+#                 --- 基本面复合因子实现 (Fundamental Factors) ---
+# ==============================================================================
+
+
+def calculate_industry_neutral_ep(all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的 EP (Earnings / Price) 因子。
+    """
+    factor_name = "IndNeu_EP"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    # 1. 准备数据
+    # 注意：all_data_df 索引是 (date, asset)
+    close = all_data_df['close']
+    share_capital = all_data_df['share_capital']
+    net_profit = all_data_df['net_profit_parent']
+
+    # 2. 计算总市值 (Market Cap)
+    market_cap = close * share_capital
+
+    # 3. 计算原始因子 (E/P)
+    # 处理分母为0或NaN的情况
+    raw_ep = net_profit / market_cap.replace(0, np.nan)
+
+    # 4. 极值处理 (简单的去极值，防止数据错误导致的 Inf)
+    # 这里简单处理：将无限值设为NaN
+    raw_ep = raw_ep.replace([np.inf, -np.inf], np.nan)
+
+    # 5. 行业中性化
+    return _neutralize_by_industry(raw_ep, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_bp(all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的 BP (Book / Price) 因子。
+    """
+    factor_name = "IndNeu_BP"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    close = all_data_df['close']
+    share_capital = all_data_df['share_capital']
+    equity = all_data_df['total_equity_parent']
+
+    market_cap = close * share_capital
+
+    # 计算 B/P
+    raw_bp = equity / market_cap.replace(0, np.nan)
+    raw_bp = raw_bp.replace([np.inf, -np.inf], np.nan)
+
+    return _neutralize_by_industry(raw_bp, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_roe(all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的 ROE (Return on Equity) 因子。
+    """
+    factor_name = "IndNeu_ROE"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    net_profit = all_data_df['net_profit_parent']
+    equity = all_data_df['total_equity_parent']
+
+    # 计算 ROE
+    raw_roe = net_profit / equity.replace(0, np.nan)
+    raw_roe = raw_roe.replace([np.inf, -np.inf], np.nan)
+
+    return _neutralize_by_industry(raw_roe, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_sales_growth(all_data_df: pd.DataFrame,
+                                            window: int = 242) -> pd.Series:
+    """
+    计算行业中性的营收增长率 (Sales Growth YoY)。
+    注意：由于财报数据已经 ffill 到日频，我们取 shift(242) 约等于一年前的数据。
+    """
+    factor_name = "IndNeu_SalesGrowth"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name} (Window={window})...")
+
+    revenue = all_data_df['total_revenue']
+
+    # 1. 计算同比增长率
+    # 需要按 asset 分组后 shift
+    # 这里的 all_data_df 已经是 MultiIndex (date, asset)，需要先 groupby asset
+    def calculate_pct_change(series):
+        return series.pct_change(periods=window)
+
+    # reset_index 以便 groupby asset
+    # 注意：all_data_df 必须是按 date 排序的，data_manager 保证了这一点
+    # 但为了 groupby 效率，我们通常操作 Series
+
+    # 这是一个稍微耗时的操作，但对于 Type 2 因子是可以接受的
+    raw_growth = revenue.groupby('asset').apply(
+        lambda x: x.pct_change(periods=window))
+
+    # 清理 groupby 产生的多级索引问题 (如果 apply 没有保留原始索引结构)
+    # 通常 groupby(level='asset').pct_change() 会保留原始索引
+    if raw_growth.index.equals(revenue.index):
+        pass  # 索引一致，直接使用
+    else:
+        # 如果索引乱了，尝试恢复 (视 pandas 版本而定，通常直接 apply(pct_change) 会保留原索引)
+        raw_growth = raw_growth.reindex(revenue.index)
+
+    raw_growth = raw_growth.replace([np.inf, -np.inf], np.nan)
+
+    return _neutralize_by_industry(raw_growth, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_cfop(all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的经营现金流市价率 (CFO / Market Cap)。
+    """
+    factor_name = "IndNeu_CFOP"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    cfo = all_data_df['net_cash_flow_ops']
+    market_cap = all_data_df['close'] * all_data_df['share_capital']
+
+    # 计算 CFO/P
+    raw_cfop = cfo / market_cap.replace(0, np.nan)
+    raw_cfop = raw_cfop.replace([np.inf, -np.inf], np.nan)
+
+    return _neutralize_by_industry(raw_cfop, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_gpm(all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的毛利率 (Gross Profit Margin)。
+    公式: (Revenue - COGS) / Revenue
+    """
+    factor_name = "IndNeu_GPM"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    revenue = all_data_df['total_revenue']
+    cogs = all_data_df['cost_of_goods_sold']
+
+    gross_profit = revenue - cogs
+    raw_gpm = gross_profit / revenue.replace(0, np.nan)
+
+    # 毛利率通常在 0~1 之间，但也可能为负，极值处理
+    raw_gpm = raw_gpm.replace([np.inf, -np.inf], np.nan)
+
+    # 简单的异常值过滤 (例如毛利率 > 100% 或 < -100% 通常是数据错误或极端情况)
+    # 这里暂时不做强行截断，交给标准化处理
+
+    return _neutralize_by_industry(raw_gpm, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_asset_turnover(
+        all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的总资产周转率 (Asset Turnover)。
+    公式: Revenue / Total Assets
+    """
+    factor_name = "IndNeu_AssetTurnover"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    revenue = all_data_df['total_revenue']
+    assets = all_data_df['total_assets']
+
+    raw_ato = revenue / assets.replace(0, np.nan)
+    raw_ato = raw_ato.replace([np.inf, -np.inf], np.nan)
+
+    return _neutralize_by_industry(raw_ato, all_data_df['industry'],
+                                   factor_name)
+
+
+def calculate_industry_neutral_current_ratio(
+        all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的流动比率 (Current Ratio)。
+    公式: Current Assets / Current Liabilities
+    """
+    factor_name = "IndNeu_CurrentRatio"
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    ca = all_data_df['current_assets']
+    cl = all_data_df['current_liabilities']
+
+    raw_cr = ca / cl.replace(0, np.nan)
+    raw_cr = raw_cr.replace([np.inf, -np.inf], np.nan)
+
+    return _neutralize_by_industry(raw_cr, all_data_df['industry'],
+                                   factor_name)
+
+
+# ==============================================================================
 #                 --- 【【【复合因子注册表】】】 ---
 # ==============================================================================
 
@@ -313,7 +505,13 @@ COMPLEX_FACTOR_REGISTRY = {
     "IndNeu_Momentum": calculate_industry_neutral_momentum,
     "IndNeu_Reversal20D": calculate_industry_neutral_reversal20d,
     "IndNeu_ADXDMI": calculate_industry_neutral_adxdmi,
-
-    # 【【【新增】】】
     "IndNeu_VolumeCV": calculate_industry_neutral_volume_cv,
+    "IndNeu_EP": calculate_industry_neutral_ep,
+    "IndNeu_BP": calculate_industry_neutral_bp,
+    "IndNeu_ROE": calculate_industry_neutral_roe,
+    "IndNeu_SalesGrowth": calculate_industry_neutral_sales_growth,
+    "IndNeu_CFOP": calculate_industry_neutral_cfop,
+    "IndNeu_GPM": calculate_industry_neutral_gpm,
+    "IndNeu_AssetTurnover": calculate_industry_neutral_asset_turnover,
+    "IndNeu_CurrentRatio": calculate_industry_neutral_current_ratio,
 }

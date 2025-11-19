@@ -58,7 +58,7 @@ ROLLING_REGRESSION_STRATEGY = StrategyConfig(
         'TARGET_RETURN_PERIOD': 30
     })
 
-AI_PERIODIC_RETRAIN_STRATEGY = StrategyConfig(
+LIGHTGBM_STRATEGY = StrategyConfig(
     combiner_class=AICombiner,
     combiner_kwargs={'initial_model_path': None},
     rolling_config={
@@ -90,10 +90,10 @@ AI_PERIODIC_RETRAIN_STRATEGY = StrategyConfig(
 #                 --- 在这里注册您的策略 ---
 # ==============================================================================
 STRATEGY_REGISTRY = {
-    "RollingICIR_Daily": ROLLING_ICIR_STRATEGY,
+    "RollingICIR": ROLLING_ICIR_STRATEGY,
     "FixedWeights": FIXED_WEIGHT_STRATEGY,
     "EqualWeights": EQUAL_WEIGHT_STRATEGY,
     "DynamicSignificance": DYNAMIC_SIG_STRATEGY,
-    "RollingRegression_Daily": ROLLING_REGRESSION_STRATEGY,
-    "AI_Periodic_Retrain": AI_PERIODIC_RETRAIN_STRATEGY,
+    "RollingRegression": ROLLING_REGRESSION_STRATEGY,
+    "LightGBM_Periodic": LIGHTGBM_STRATEGY,
 }

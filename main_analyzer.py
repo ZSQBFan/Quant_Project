@@ -14,12 +14,12 @@ import sys
 from strategy_configs import STRATEGY_REGISTRY
 
 # 【【请在这里选择您的策略名称 (从 strategy_configs.py 复制)】】
-# STRATEGY_NAME = "RollingICIR_Daily"
-# STRATEGY_NAME = "RollingRegression_Daily"
+# STRATEGY_NAME = "RollingICIR"
+# STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
-STRATEGY_NAME = "AI_Periodic_Retrain"
+STRATEGY_NAME = "LightGBM_Periodic"
 
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
     raise ValueError(f"策略 '{STRATEGY_NAME}' 未在 strategy_configs.py 中注册。")
@@ -37,8 +37,16 @@ FACTORS_TO_RUN = [
     # 'Momentum',
     # 'Reversal20D',
     "IndNeu_Momentum",
-    "IndNeu_Reversal20D",
-    "IndNeu_VolumeCV",
+    # "IndNeu_Reversal20D",
+    # "IndNeu_VolumeCV",
+    # "IndNeu_EP",
+    "IndNeu_BP"
+    # "IndNeu_ROE",
+    # "IndNeu_SalesGrowth",
+    # "IndNeu_CFOP",
+    # "IndNeu_GPM",
+    # "IndNeu_AssetTurnover",
+    # "IndNeu_CurrentRatio",
 ]
 
 # --- 1d. 截面数据配置 (Cross-Sectional Data) ---
@@ -320,6 +328,7 @@ if __name__ == '__main__':
         # combined_factors_df = combined_factors_df.groupby(level='date').apply(lambda x: STANDARDIZER.standardize(x))
     else:
         logging.info("⚙️ 步骤 3a: 合并因子数据...")
+
         combined_factors_df = pd.concat(all_factors_dfs.values(),
                                         axis=1,
                                         keys=all_factors_dfs.keys())

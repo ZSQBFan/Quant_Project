@@ -104,8 +104,8 @@ class DataProviderManager:
             self.symbols = symbols if symbols else []
 
         # ======================================================================
-        # 【【【核心配置：列名映射字典】】】
-        # 用于告诉程序：当我们想要某个“因子所需的列”时，应该去哪个表、哪个字段找。
+        # 【【【核心配置：列名映射字典 (完整版)】】】
+        # 格式: '因子计算用的通用列名': ('数据库表名', 'CSMAR原始字段代码')
         # ======================================================================
         self.COLUMN_MAPPING = {
             # --- 1. 日线行情表 (stock_daily_prices) ---
@@ -117,54 +117,80 @@ class DataProviderManager:
             'turnover': ('stock_daily_prices', 'turnover'),
             'pct_change': ('stock_daily_prices', 'pct_change'),
             'turnover_rate': ('stock_daily_prices', 'turnover_rate'),
+            'amplitude': ('stock_daily_prices', 'amplitude'),
+            'price_change': ('stock_daily_prices', 'price_change'),
 
             # --- 2. 行业/元数据表 (stock_kind) ---
             'industry': ('stock_kind', 'Nnindnme'),  # 行业名称
+            'industry_code': ('stock_kind', 'Nnindcd'),  # 行业代码
             'stk_name': ('stock_kind', 'Stknme'),  # 股票简称
             'list_date': ('stock_kind', 'Listdt'),  # 上市日期
+            'ownership': ('stock_kind', 'OWNERSHIPTYPE'),  # 企业性质
+            'market_type': ('stock_kind', 'Markettype'),  # 市场类型
+            'status': ('stock_kind', 'Statco'),  # 上市状态
 
             # --- 3. 资产负债表 (Stock_BalanceSheet) ---
+            # 核心权益与资本
             'total_equity_parent':
             ('Stock_BalanceSheet', 'A003100000'),  # 归母所有者权益 (B/P, ROE分母)
-            'total_assets': ('Stock_BalanceSheet', 'A001000000'),  # 资产总计
-            'total_liabilities': ('Stock_BalanceSheet', 'A002000000'),  # 负债合计
             'share_capital':
             ('Stock_BalanceSheet', 'A003101000'),  # 实收资本/股本 (计算市值)
+
+            # 资产端
+            'total_assets': ('Stock_BalanceSheet', 'A001000000'),  # 资产总计
             'current_assets': ('Stock_BalanceSheet', 'A001100000'),  # 流动资产
-            'current_liabilities':
-            ('Stock_BalanceSheet', 'A002100000'),  # 流动负债
+            'fixed_assets': ('Stock_BalanceSheet', 'A001212000'),  # 固定资产净额
+            'intangible_assets':
+            ('Stock_BalanceSheet', 'A001218000'),  # 无形资产净额
+            'goodwill': ('Stock_BalanceSheet', 'A001220000'),  # 商誉净额
             'inventory': ('Stock_BalanceSheet', 'A001123000'),  # 存货净额
             'accounts_receivable':
             ('Stock_BalanceSheet', 'A001111000'),  # 应收账款净额
-            'fixed_assets': ('Stock_BalanceSheet', 'A001212000'),  # 固定资产净额
-            'intangible_assets': ('Stock_BalanceSheet',
-                                  'A001218000'),  # 无形资产净额
-            'goodwill': ('Stock_BalanceSheet', 'A001220000'),  # 商誉净额
+
+            # 负债端
+            'total_liabilities': ('Stock_BalanceSheet', 'A002000000'),  # 负债合计
+            'current_liabilities': ('Stock_BalanceSheet',
+                                    'A002100000'),  # 流动负债
 
             # --- 4. 利润表 (stock_ProfitSheet) ---
+            # 收入与成本
             'total_revenue': ('stock_ProfitSheet',
                               'B001100000'),  # 营业总收入 (成长因子)
             'cost_of_goods_sold': ('stock_ProfitSheet', 'B001201000'),  # 营业成本
+
+            # 利润层级
             'operating_profit': ('stock_ProfitSheet', 'B001300000'),  # 营业利润
             'total_profit': ('stock_ProfitSheet', 'B001000000'),  # 利润总额
             'net_profit_parent': ('stock_ProfitSheet',
                                   'B002000101'),  # 归母净利润 (E/P, ROE分子)
-            'income_tax_expense': ('stock_ProfitSheet', 'B002100000'),  # 所得税费用
+
+            # 费用与税
             'selling_expenses': ('stock_ProfitSheet', 'B001209000'),  # 销售费用
             'admin_expenses': ('stock_ProfitSheet', 'B001210000'),  # 管理费用
-            'rd_expenses': ('stock_ProfitSheet', 'B001216000'),  # 研发费用
+            'rd_finance_expenses': ('stock_ProfitSheet',
+                                    'B001216000'),  # 研发/财务费用
+            'income_tax_expense': ('stock_ProfitSheet', 'B002100000'),  # 所得税费用
 
             # --- 5. 现金流量表 (stock_CashFlowDirect) ---
+            # 经营活动
             'net_cash_flow_ops': ('stock_CashFlowDirect',
                                   'C001000000'),  # 经营活动现金流净额 (CFO)
+
+            # 投资活动
             'net_cash_flow_inv': ('stock_CashFlowDirect',
                                   'C002000000'),  # 投资活动现金流净额 (CFI)
-            'net_cash_flow_fin': ('stock_CashFlowDirect',
-                                  'C003000000'),  # 筹资活动现金流净额 (CFF)
             'capex': ('stock_CashFlowDirect',
                       'C002006000'),  # 购建长期资产支付 (CapEx)
+
+            # 筹资活动
+            'net_cash_flow_fin': ('stock_CashFlowDirect',
+                                  'C003000000'),  # 筹资活动现金流净额 (CFF)
+            'borrowing_cash': ('stock_CashFlowDirect',
+                               'C003002000'),  # 取得借款收到的现金
             'dividends_paid': ('stock_CashFlowDirect',
                                'C003005000'),  # 分配股利/利息支付
+            'other_fin_payment': ('stock_CashFlowDirect',
+                                  'C003006000'),  # 支付其他筹资现金
         }
 
     def _get_provider(self, name):
@@ -246,109 +272,220 @@ class DataProviderManager:
             return None
 
     # ==========================================================================
-    # 【【【核心方法 2：获取全市场合并数据】】】
+    # 【【【核心方法 2 (升级版)：获取全市场合并数据 (支持基本面)】】】
     # ==========================================================================
     def get_all_data_for_universe(
             self,
             universe: list,
             required_columns: list = None) -> pd.DataFrame:
-        """
-        为整个股票池获取合并了所有所需数据(行情+行业+基本面)的大宽表。
-        采用 Pandas-Native 方式：分别读取，内存合并。
-        """
-        # --- [控制台输出] 告知用户正在分析数据需求 ---
         logging.info(f"⚙️ [数据加载] 正在解析 {len(universe)} 只股票的数据需求...")
 
-        # 1. 分析需求：我们需要加载哪些表的数据？
+        # 1. 需求分析
+        table_col_map = {}
         load_industry = False
 
         if required_columns:
-            # 检查是否请求了 'industry'
-            if 'industry' in required_columns:
-                load_industry = True
+            for col in required_columns:
+                if col == 'industry':
+                    load_industry = True
+                    continue
+                mapping = self.COLUMN_MAPPING.get(col)
+                if mapping:
+                    table_name, db_col = mapping
+                    if table_name not in table_col_map:
+                        table_col_map[table_name] = []
+                    table_col_map[table_name].append(col)
+                elif col in ['open', 'high', 'low', 'close', 'volume']:
+                    if 'stock_daily_prices' not in table_col_map:
+                        table_col_map['stock_daily_prices'] = []
+                    table_col_map['stock_daily_prices'].append(col)
 
-        # 2. 预加载静态数据 (优化：避免在循环中 N 次查询数据库)
+        # 2. 预加载行业数据
         industry_map = {}
         if load_industry:
-            # --- [控制台输出] 告知用户正在预加载行业数据 ---
-            logging.info("  > 正在预加载行业数据 (stock_kind)...")
-
-            # 查询 Stkcd (代码) 和 Nnindnme (行业名)
+            logging.info("  > 正在预加载行业数据...")
             ind_query = "SELECT Stkcd, Nnindnme FROM stock_kind"
             ind_df = self.db_handler.query_data(ind_query)
-
             if ind_df is not None and not ind_df.empty:
-                # 清洗代码格式，确保与 universe 中的 symbol 格式一致 (如补零)
-                # 假设 universe 中的 symbol 是 6 位数字符串
                 ind_df['Stkcd'] = ind_df['Stkcd'].astype(str).str.zfill(6)
-                # 转为字典: {'000001': '银行', ...}
                 industry_map = ind_df.set_index('Stkcd')['Nnindnme'].to_dict()
-                logging.info(f"  > ✅ 成功加载 {len(industry_map)} 条行业记录。")
-            else:
-                logging.warning("  > ⚠️ 警告: 未能加载到行业数据，'industry' 列将为空。")
 
-        # 3. 循环获取每只股票的数据并组装
+        # ======================================================================
+        # 【【【优化重点】】】: 基本面数据全量预加载
+        # 避免在循环中进行 5000+ 次 SQL 查询
+        # ======================================================================
+        fundamental_cache = {
+        }  # 结构: { 'Stock_BalanceSheet': { '600519': df, ... }, ... }
+
+        for table_name, cols in table_col_map.items():
+            if table_name == 'stock_daily_prices': continue
+
+            logging.info(f"  > 🚀 [预加载] 正在全量读取 {table_name} ({cols})...")
+            # 预加载该表所有股票的数据
+            df_all = self._preload_fundamental_table(table_name, cols)
+
+            if df_all is not None and not df_all.empty:
+                # 按股票代码分组，存入字典
+                # 假设 Stkcd 是索引的一部分或列
+                # _preload_fundamental_table 返回的 df 包含 'Stkcd' 和 'date'
+
+                # 将大表拆分为小字典，key是股票代码 (str)
+                #这一步虽然耗时，但比几千次SQL快得多
+                grouped = df_all.groupby('Stkcd')
+                fundamental_cache[table_name] = {
+                    str(k).zfill(6): v
+                    for k, v in grouped
+                }
+                logging.info(
+                    f"    > 已缓存 {len(fundamental_cache[table_name])} 只股票的 {table_name} 数据。"
+                )
+
+        # 3. 主循环
         all_dfs = []
+        logging.info(f"🚀 开始合并数据...")
 
-        # --- [控制台输出] 开始主循环，显示进度条 ---
-        logging.info(f"🚀 开始加载并合并数据 (按需加载列: {required_columns})...")
-
-        # 过滤出只属于行情表的列，传给 get_dataframe
-        # 这样避免把 'industry' 这种列传给 SQL 报错
-        price_cols = []
-        if required_columns:
-            for c in required_columns:
-                mapping = self.COLUMN_MAPPING.get(c)
-                if mapping and mapping[0] == 'stock_daily_prices':
-                    price_cols.append(c)
-                elif c in ['open', 'high', 'low', 'close', 'volume']:  # 基础列保底
-                    price_cols.append(c)
+        # 只需要查行情的列
+        price_cols = table_col_map.get('stock_daily_prices', [])
 
         for symbol in tqdm(universe, desc="[Data Load]"):
-            # A. 获取基础行情 (已按需筛选列)
-            df = self.get_dataframe(symbol, columns=price_cols)
+            # A. 获取基础行情 (这个必须逐个查，因为全量查行情表内存会爆)
+            df_price = self.get_dataframe(symbol, columns=price_cols)
 
-            if df is None or df.empty:
+            if df_price is None or df_price.empty:
                 continue
 
-            # B. 合并行业数据 (Pandas Native: 字典映射)
+            # B. 内存合并基本面数据
+            for table_name in fundamental_cache:
+                # 从缓存字典里直接取，不需要 SQL
+                stock_fund_data = fundamental_cache[table_name].get(symbol)
+
+                if stock_fund_data is not None:
+                    # stock_fund_data 已经清洗过，index是 date
+                    # 删除 Stkcd 列防止重名
+                    if 'Stkcd' in stock_fund_data.columns:
+                        stock_fund_data = stock_fund_data.drop(
+                            columns=['Stkcd'])
+
+                    df_price = df_price.join(stock_fund_data, how='left')
+                    df_price = df_price.ffill()  # 填充
+
+            # C. 合并行业
             if load_industry:
-                # 使用 map 比 apply 更快
-                # get(symbol) 获取该股票的行业，如果没有则为 None
-                ind = industry_map.get(symbol)
-                df['industry'] = ind
+                df_price['industry'] = industry_map.get(symbol)
 
-            # C. (未来) 合并基本面数据
-            # 这里将是 pd.merge_asof 的位置，用于对齐财报日期
-
-            # 添加 asset 列，用于构建 MultiIndex
-            df['asset'] = symbol
-            all_dfs.append(df)
+            df_price['asset'] = symbol
+            all_dfs.append(df_price)
 
         if not all_dfs:
-            logging.error("❌ 未能加载任何数据。")
             return pd.DataFrame()
 
-        # 4. 最终合并所有股票的数据
-        # --- [控制台输出] 告知用户正在进行最终合并 ---
-        logging.info("⚙️ 正在合并所有股票的数据框...")
-
+        logging.info("⚙️ 正在堆叠数据框...")
         final_df = pd.concat(all_dfs)
-
-        # 【【【修复点】】】: 之前这里有两行 set_index，导致了 KeyError
-        # 现在的逻辑：
-        # 1. concat 后，索引是 date，列有 asset (和其他数据)
-        # 2. reset_index() -> 索引变成 0,1,2...，date 变回普通列
-        # 3. set_index(['date', 'asset']) -> 建立多重索引
-
         final_df.reset_index(inplace=True)
         final_df.set_index(['date', 'asset'], inplace=True)
-
-        # 排序 (这对 rolling 计算至关重要)
         final_df.sort_index(inplace=True)
 
-        logging.info(f"✅ 数据加载完成，共 {len(final_df)} 行。")
         return final_df
+
+    def _preload_fundamental_table(self, table_name: str,
+                                   required_cols: list) -> pd.DataFrame | None:
+        """
+        【辅助方法】全量读取一张基本面表，并清洗列名。
+        """
+        db_cols = []
+        rename_map = {}
+        for col in required_cols:
+            mapping = self.COLUMN_MAPPING.get(col)
+            if mapping:
+                db_cols.append(mapping[1])
+                rename_map[mapping[1]] = col
+
+        if not db_cols: return None
+
+        # 读取 Stkcd, Accper 和所需列
+        cols_str = ", ".join(['Stkcd', 'Accper'] + db_cols)
+        # 限制时间范围优化性能 (可选，这里查全量比较安全)
+        query = f"SELECT {cols_str} FROM {table_name} ORDER BY Accper"
+
+        try:
+            df = self.db_handler.query_data(query)
+            if df is None or df.empty: return None
+
+            # 清洗
+            df['date'] = pd.to_datetime(df['Accper'])
+            df.set_index('date', inplace=True)
+            df.drop(columns=['Accper'], inplace=True, errors='ignore')
+            df.rename(columns=rename_map, inplace=True)
+
+            # 强制转数值
+            cols_to_numeric = list(rename_map.values())
+            df[cols_to_numeric] = df[cols_to_numeric].apply(pd.to_numeric,
+                                                            errors='coerce')
+
+            # 去重 (Stkcd + Date 唯一)
+            # 因为我们要 groupby Stkcd，所以这里先不 drop Stkcd
+            if not df.empty:
+                # reset_index 会把 date (index) 变成列，从而可以对 ['date', 'Stkcd'] 联合去重
+                df = df.reset_index()
+                df = df.drop_duplicates(subset=['date', 'Stkcd'], keep='last')
+                df = df.set_index('date')
+
+            return df
+        except Exception as e:
+            logging.error(f"全量预加载失败 {table_name}: {e}")
+            return None
+
+    def _get_fundamental_data(self, symbol: str, table_name: str,
+                              required_cols: list) -> pd.DataFrame | None:
+        """
+        【辅助方法】查询单张基本面表的数据。
+        返回: index为date(Accper)的DataFrame，列名为通用列名(如 share_capital)。
+        """
+        # 1. 找到这些通用列对应的数据库原始列名
+        db_cols = []
+        rename_map = {}
+
+        for col in required_cols:
+            mapping = self.COLUMN_MAPPING.get(col)
+            if mapping:
+                original_col = mapping[1]
+                db_cols.append(original_col)
+                rename_map[original_col] = col
+
+        if not db_cols: return None
+
+        # 2. 构建查询
+        cols_str = ", ".join(['Accper'] + db_cols)
+
+        # 尝试处理 symbol 格式 (CSMAR通常用整数存Stkcd)
+        try:
+            symbol_int = int(symbol)
+        except:
+            symbol_int = symbol
+
+        query = f"SELECT {cols_str} FROM {table_name} WHERE Stkcd = ? ORDER BY Accper"
+
+        try:
+            df = self.db_handler.query_data(query, (symbol_int, ))
+            if df is None or df.empty: return None
+
+            # 3. 清洗数据
+            df['date'] = pd.to_datetime(df['Accper'])
+            df.set_index('date', inplace=True)
+            df.drop(columns=['Accper'], inplace=True, errors='ignore')
+
+            # 重命名回通用列名
+            df.rename(columns=rename_map, inplace=True)
+
+            # 转换数据类型为数值型 (防止字符串)
+            df = df.apply(pd.to_numeric, errors='coerce')
+
+            # 去重 (防止同一天发布两次财报导致的索引冲突)
+            df = df[~df.index.duplicated(keep='last')]
+
+            return df
+        except Exception as e:
+            return None
 
     def calculate_universe_forward_returns(
             self, universe: list,
