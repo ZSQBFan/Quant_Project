@@ -31,18 +31,11 @@ STRATEGY_CONFIG = STRATEGY_REGISTRY[STRATEGY_NAME]
 #   具体的参数 (params) 和数据依赖 (required_columns) 已在 factor_configs.py 中统一定义。
 #
 from factor_configs import FACTOR_REGISTRY
-
-FACTORS_TO_ANALYZE = [
-    # 'Momentum',
-    # 'Reversal20D',
-    # 'RSI',
-    # 'BollingerBands',
-]
-
-# --- 1c. 复合因子选择 (Complex Factors) ---
 from factor_analysis.factors_complex import COMPLEX_FACTOR_REGISTRY
 
-COMPLEX_FACTORS_TO_RUN = [
+FACTORS_TO_RUN = [
+    # 'Momentum',
+    # 'Reversal20D',
     "IndNeu_Momentum",
     "IndNeu_Reversal20D",
     "IndNeu_VolumeCV",
@@ -58,7 +51,9 @@ from strategies.standardizers import (CrossSectionalZScoreStandardizer,
                                       NoStandardizer,
                                       CrossSectionalQuantileStandardizer)
 
-STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer
+STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer  #跨度Z分数标准化
+# STANDARDIZER_CLASS = NoStandardizer  #不进行标准化
+# STANDARDIZER_CLASS = CrossSectionalQuantileStandardizer  #截面分位数标准化
 
 # ==============================================================================
 # 2. 基础回测与路径配置 (Basic Backtest & Path Settings)
@@ -170,30 +165,63 @@ if __name__ == '__main__':
     future_returns_df.set_index('date', inplace=True)
 
     # ==============================================================================
-    # 【【【新增步骤 1.7: 预计算所需数据列 (按需加载核心)】】】
+    # 【【【新增步骤 1.6: 因子分类与路由】】】
+    # ==============================================================================
+    simple_factors_batch = []
+    complex_factors_batch = []
+
+    logging.info(f"\n{'='*60}\n--- 步骤 1.6: 因子分类与路由 ---\n{'='*60}")
+
+    # 注意：这里使用的是统一的 FACTORS_TO_RUN 列表
+    for item in FACTORS_TO_RUN:
+        # 解析配置 (支持 'Name' 或 ('Name', params) 格式)
+        if isinstance(item, tuple):
+            f_name = item[0]
+            f_params = item[1]
+        else:
+            f_name = item
+            f_params = {}
+
+        # 检查注册表
+        if f_name not in FACTOR_REGISTRY:
+            logging.warning(f"⚠️ 跳过: 因子 '{f_name}' 未在 factor_configs.py 中注册。")
+            continue
+
+        config = FACTOR_REGISTRY[f_name]
+        # 获取因子类别，默认为 'simple'
+        category = config.get('category', 'simple')
+
+        # 分流逻辑
+        if category == 'simple':
+            simple_factors_batch.append((f_name, f_params))
+        elif category == 'complex':
+            complex_factors_batch.append(f_name)
+        else:
+            logging.warning(
+                f"⚠️ 跳过: 因子 '{f_name}' 的 category '{category}' 无效。")
+
+    logging.info(f"📋 简单因子 (多进程计算): {[f[0] for f in simple_factors_batch]}")
+    logging.info(f"📋 复合因子 (全量表计算): {complex_factors_batch}")
+
+    # ==============================================================================
+    # 【【【新增步骤 1.7: 预计算所需数据列】】】
     # ==============================================================================
     logging.info(f"\n{'='*60}\n--- 步骤 1.7: 预计算所有因子所需的数据列 ---\n{'='*60}")
 
     all_required_columns = set()
-    all_factors_to_run = FACTORS_TO_ANALYZE + COMPLEX_FACTORS_TO_RUN
 
-    for factor_name in all_factors_to_run:
-        # 兼容处理：如果用户在 FACTORS_TO_ANALYZE 中写了元组 ('Name', params)，取第一个元素
-        if isinstance(factor_name, tuple):
-            factor_name = factor_name[0]
+    # 收集所有活跃因子的列需求
+    all_active_factors = [f[0] for f in simple_factors_batch
+                          ] + complex_factors_batch
 
-        if factor_name in FACTOR_REGISTRY:
-            required = FACTOR_REGISTRY[factor_name].get('required_columns', [])
-            all_required_columns.update(required)
-        else:
-            logging.warning(
-                f"⚠️ 警告: 因子 '{factor_name}' 未在 FACTOR_REGISTRY 中注册，将无法按需加载。")
+    for factor_name in all_active_factors:
+        required = FACTOR_REGISTRY[factor_name].get('required_columns', [])
+        all_required_columns.update(required)
 
     # 处理全局行业数据开关
     if LOAD_INDUSTRY_DATA:
         all_required_columns.add('industry')
 
-    # 排序仅为了日志美观
     sorted_cols = sorted(list(all_required_columns))
     logging.info(f"✅ 本次运行优化后的数据列需求: {sorted_cols}")
 
@@ -201,35 +229,23 @@ if __name__ == '__main__':
     # 2. 计算因子原始值
     # =====================
     all_factors_dfs = {}
-    all_data_df = None
 
-    logging.info(f"\n{'='*60}\n--- 步骤 2: 计算所有指定因子的原始值 ---\n{'='*60}")
+    logging.info(f"\n{'='*60}\n--- 步骤 2: 执行因子计算 ---\n{'='*60}")
 
-    # --- 步骤 2a: 计算基础因子 (Type 1) ---
-    if not FACTORS_TO_ANALYZE:
-        logging.info("ℹ️ (跳过: 未配置基础因子)")
+    # --- 分支 A: 执行简单因子 (Simple Factors) ---
+    if not simple_factors_batch:
+        logging.info("ℹ️ (无简单因子需要计算)")
     else:
-        for factor_item in FACTORS_TO_ANALYZE:
-            # 兼容旧格式 (name, params) 或新格式 name
-            if isinstance(factor_item, tuple):
-                factor_name = factor_item[0]
-                # 如果用户在 main 中指定了参数，优先使用；否则用 Registry 的
-                factor_params = factor_item[1] if len(factor_item) > 1 else {}
-            else:
-                factor_name = factor_item
-                factor_params = {}  # 稍后会从 Registry 合并
-
-            # 从 Registry 获取标准配置
+        for factor_name, user_params in simple_factors_batch:
+            # 获取配置
             registry_config = FACTOR_REGISTRY.get(factor_name, {})
             registry_params = registry_config.get('params', {})
             required_cols = registry_config.get('required_columns', [])
 
             # 合并参数 (main 配置覆盖 registry 配置)
-            final_params = {**registry_params, **factor_params}
+            final_params = {**registry_params, **user_params}
 
-            logging.info(
-                f"⚙️ 启动 (Type 1) 计算器: {factor_name} (Cols: {required_cols})..."
-            )
+            logging.info(f"⚙️ [Simple] 启动计算器: {factor_name}...")
 
             calculator = FactorCalculator(
                 provider_configs=data_manager.provider_configs,
@@ -240,7 +256,7 @@ if __name__ == '__main__':
                 factor_name=factor_name,
                 factor_params=final_params,
                 num_threads=FACTOR_CALC_PROCESSES,
-                required_columns=required_cols  # 【【【核心：按需加载】】】
+                required_columns=required_cols  # 按需加载
             )
 
             factor_data_df = calculator.calculate_factor()
@@ -250,33 +266,39 @@ if __name__ == '__main__':
                     'asset', append=True)['factor_value']
                 factor_series.name = factor_name
                 all_factors_dfs[factor_name] = factor_series.sort_index()
-                logging.info(f"✅ 成功计算: {factor_name}")
+                logging.info(f"  > ✅ 完成: {factor_name}")
 
-    # --- 步骤 2b: 计算复合因子 (Type 2) ---
-    if not COMPLEX_FACTORS_TO_RUN:
-        logging.info("ℹ️ (跳过: 未配置复合因子)")
+    # --- 分支 B: 执行复合因子 (Complex Factors) ---
+    if not complex_factors_batch:
+        logging.info("ℹ️ (无复合因子需要计算)")
     else:
-        logging.info("⚙️ 正在准备 (Type 2) 复合因子计算所需的全量数据...")
-        # 【【【核心：只加载所有因子需要的列并集】】】
+        logging.info(
+            f"⚙️ [Complex] 正在为复合因子加载宽表数据 (Cols: {len(sorted_cols)})...")
+
+        # 加载所有需要的列
         all_data_df = data_manager.get_all_data_for_universe(
-            active_universe, required_columns=list(all_required_columns))
+            active_universe, required_columns=sorted_cols)
 
-        if all_data_df is None:
-            logging.error("❌ 无法加载复合因子所需的基础数据。")
+        if all_data_df is None or all_data_df.empty:
+            logging.error("❌ 无法加载数据，跳过复合因子计算。")
         else:
-            # 这里的行业数据已经在 get_all_data_for_universe 中根据 'industry' 列自动合并了
-            # 所以不需要像以前那样手动 merge get_industry_mapping
-
-            for factor_name in COMPLEX_FACTORS_TO_RUN:
+            for factor_name in complex_factors_batch:
                 if factor_name in COMPLEX_FACTOR_REGISTRY:
-                    logging.info(f"⚙️ 计算 (Type 2) 复合因子: {factor_name}...")
+                    logging.info(f"⚙️ [Complex] 计算: {factor_name}...")
                     factor_func = COMPLEX_FACTOR_REGISTRY[factor_name]
+
+                    # 复合因子函数直接接收 DataFrame
                     factor_series = factor_func(all_data_df)
+
                     if factor_series is not None:
                         factor_series.name = factor_name
                         all_factors_dfs[
                             factor_name] = factor_series.sort_index()
-                        logging.info(f"✅ 成功计算: {factor_name}")
+                        logging.info(f"  > ✅ 完成: {factor_name}")
+                else:
+                    logging.warning(
+                        f"⚠️ 警告: 因子 {factor_name} 在 COMPLEX_FACTOR_REGISTRY 中未找到。"
+                    )
 
     # =====================
     # 3. 因子合并与分析
@@ -294,6 +316,8 @@ if __name__ == '__main__':
         logging.info("ℹ️ 单因子模式。")
         final_factor_name = FACTOR_NAMES[0]
         combined_factors_df = all_factors_dfs[final_factor_name].to_frame()
+        # 单因子通常不需要标准化用于合成，但如果需要统一量纲可以打开下面这行
+        # combined_factors_df = combined_factors_df.groupby(level='date').apply(lambda x: STANDARDIZER.standardize(x))
     else:
         logging.info("⚙️ 步骤 3a: 合并因子数据...")
         combined_factors_df = pd.concat(all_factors_dfs.values(),
@@ -303,6 +327,17 @@ if __name__ == '__main__':
             combined_factors_df.columns = combined_factors_df.columns.droplevel(
                 1)
 
+        # ======================================================================
+        # 【【【关键修正】】】: 在进入策略分支前，统一进行全局截面标准化
+        # ======================================================================
+        logging.info(
+            f"⚙️ 步骤 3b: 执行全局截面标准化 ({STANDARDIZER.__class__.__name__})...")
+
+        combined_factors_df = combined_factors_df.groupby(
+            level='date',
+            group_keys=False).apply(lambda x: STANDARDIZER.standardize(x))
+        logging.info("  > ✅ 所有因子已完成标准化处理。")
+
         # 核心策略逻辑
         if not STRATEGY_CONFIG.is_rolling():
             # A. 静态策略
@@ -311,13 +346,8 @@ if __name__ == '__main__':
             combiner = STRATEGY_CONFIG.combiner_class(
                 **STRATEGY_CONFIG.combiner_kwargs)
 
-            logging.info(
-                f"⚙️ 步骤 3b: 截面标准化 ({STANDARDIZER.__class__.__name__})...")
-            standardized_factors_df = combined_factors_df.groupby(
-                level='date').apply(lambda x: STANDARDIZER.standardize(x))
-
             logging.info("⚙️ 步骤 3c: 因子合成...")
-            composite_factor_series = standardized_factors_df.groupby(
+            composite_factor_series = combined_factors_df.groupby(
                 level='date').apply(lambda x: combiner.combine(x))
             composite_factor_series.name = 'factor_value'
             final_factor_name = f"Composite_{STRATEGY_NAME}"
@@ -370,8 +400,14 @@ if __name__ == '__main__':
                 forward_return_periods=FORWARD_RETURN_PERIODS,
                 benchmark_data=benchmark_df)
 
-            output_filename = os.path.join(OUTPUT_DIR,
-                                           f"report_{final_factor_name}.html")
+            std_name = STANDARDIZER.__class__.__name__
+
+            if "Standardizer" in std_name:
+                std_name = std_name.replace("Standardizer", "")
+
+            output_filename = os.path.join(
+                OUTPUT_DIR, f"report_{final_factor_name}_{std_name}.html")
+
             logging.info(f"⚙️ 生成 HTML 报告: {output_filename}")
             report_generator.generate_html_report(output_filename)
         else:
