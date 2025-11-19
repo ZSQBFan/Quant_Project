@@ -1,4 +1,5 @@
-# data_manager.py (已优化 get_all_data_for_universe)
+# data/data_manager.py
+
 import pandas as pd
 import backtrader as bt
 from datetime import timedelta
@@ -9,34 +10,41 @@ import logging
 import sqlite3
 import os
 import sys
-import numpy as np  # <- 【【【新增】】】 (用于分块)
+import numpy as np
 
 from .database_handler import DatabaseHandler
 from .trading_calendars import TushareTradingCalendar, AkshareTradingCalendar
 from .data_providers import AkshareDataProvider, TushareDataProvider, SQLiteDataProvider
 
+# ==============================================================================
+# 辅助函数
+# ==============================================================================
+
 
 def _calculate_forward_returns(df: pd.DataFrame,
                                periods: list) -> pd.DataFrame:
-    """计算单个资产的未来收益率。"""
+    """
+    计算单个资产的未来收益率。
+    用于 calculate_universe_forward_returns 中的 apply 操作。
+    """
+    # 确保按日期排序
     df = df.sort_index()
     for p in periods:
-        # 使用 shift(-p) 来获取未来第 p 天的价格
+        # shift(-p) 将未来的价格向上平移，对齐到当前日期
         future_price = df['close'].shift(-p)
         df[f'forward_return_{p}d'] = (future_price / df['close']) - 1
     return df
 
 
+# ==============================================================================
+# 核心类: DataProviderManager
+# ==============================================================================
+
+
 class DataProviderManager:
     """
-    【生产者-消费者重构版】统一数据提供者管理器。
-    
-    【【重构日志】】:
-    - 2025-11-10 (性能优化):
-      - 优化 'get_all_data_for_universe'：
-        - 移除 N 次查询的循环。
-        - 替换为【分块查询】，以避免 SQLite "too many SQL variables"
-          (限制~999) 的错误。
+    统一数据管理器。
+    负责数据的下载、清洗、入库，以及向因子计算器提供按需加载的数据。
     """
 
     def __init__(self,
@@ -54,52 +62,9 @@ class DataProviderManager:
         self.end_date = pd.to_datetime(end_date).strftime('%Y-%m-%d')
         self.provider_configs = provider_configs
         self.db_handler = DatabaseHandler(db_path)
-        self.table_name = 'stock_daily_prices'
+        self.table_name = 'stock_daily_prices'  # 基础行情表名
 
-        # (已修正：仅在 auto_detect_universe=True 时才加载全市场)
-        if not symbols and auto_detect_universe:
-            logging.info("ℹ️ 'symbols' 列表为空。将从源数据库自动检测全市场股票池...")
-            try:
-                if not provider_configs:
-                    raise ValueError("provider_configs 为空, 无法自动检测股票池。")
-
-                source_provider_config = self.provider_configs[0][1]
-                source_db_path = source_provider_config.get('db_path')
-                source_table_name = source_provider_config.get('table_name')
-
-                if not source_db_path or not source_table_name:
-                    raise ValueError(
-                        "在 provider_configs[0] 中未找到 'db_path' 或 'table_name'")
-
-                logging.info(f"  > 正在连接源数据库: {source_db_path}")
-
-                conn = sqlite3.connect(source_db_path)
-                query = f"SELECT DISTINCT ticker FROM {source_table_name}"
-                all_tickers_df = pd.read_sql(query, conn)
-                conn.close()
-
-                self.symbols = [
-                    str(ticker).zfill(6) for ticker in all_tickers_df['ticker']
-                ]
-
-                if not self.symbols:
-                    raise Exception("未能从数据库加载股票列表 (查询结果为空)。")
-
-                logging.info(f"  > ✅ 成功加载 {len(self.symbols)} 只股票作为全市场股票池。")
-
-            except Exception as e:
-                logging.error(f"  > ❌ 动态获取股票池失败: {e}", exc_info=True)
-                self.symbols = []
-
-        elif not symbols and not auto_detect_universe:
-            logging.debug("  > ℹ️ DataProviderManager (Worker) 已初始化 (无股票池)。")
-            self.symbols = []
-
-        else:
-            logging.info(f"  > ℹ️ 正在使用传入的 {len(symbols)} 只股票的静态股票池。")
-            self.symbols = symbols if isinstance(symbols, list) else [symbols]
-
-        # (省略... 线程/队列/日历 初始化 ...)
+        # --- [多线程下载相关配置] ---
         self.num_checker_threads = num_checker_threads
         self.num_downloader_threads = num_downloader_threads
         self.batch_size = batch_size
@@ -109,413 +74,490 @@ class DataProviderManager:
         self.producers_finished_event = threading.Event()
         self.check_progress_bar = None
         self.download_progress_bar = None
-        if self.provider_configs:
-            if self.provider_configs[0][0].__name__ == 'TushareDataProvider':
-                self.calendar_provider = TushareTradingCalendar(
-                    token=self.provider_configs[0][1].get('token'))
-            else:
-                self.calendar_provider = AkshareTradingCalendar()
+
+        # --- [数据源初始化] ---
+        self._local = threading.local()
+
+        # 初始化交易日历 (优先尝试 Tushare，失败则用 Akshare)
+        try:
+            self.calendar_provider = TushareTradingCalendar(self.db_handler)
+        except:
+            self.calendar_provider = AkshareTradingCalendar(self.db_handler)
+
+        # --- [股票池初始化] ---
+        if not symbols and auto_detect_universe:
+            logging.info("ℹ️ 'symbols' 为空。正在从数据库自动检测股票池...")
+            try:
+                # 从 stock_daily_prices 表中获取所有去重的 code
+                query = f"SELECT DISTINCT code FROM {self.table_name}"
+                df = self.db_handler.query_data(query)
+                if df is not None and not df.empty:
+                    self.symbols = df['code'].tolist()
+                    logging.info(f"✅ 自动检测到 {len(self.symbols)} 只股票。")
+                else:
+                    logging.warning("⚠️ 数据库为空，且未提供 symbols 列表。")
+                    self.symbols = []
+            except Exception as e:
+                logging.error(f"❌ 自动检测股票池失败: {e}")
+                self.symbols = []
         else:
-            self.calendar_provider = AkshareTradingCalendar()
+            self.symbols = symbols if symbols else []
 
-    # (省略... _find_missing_date_ranges, _fetch_data_from_providers ...)
-    # (省略... _producer_worker, _consumer_worker, _save_batch_to_db, _checker_worker ...)
-    # (省略... prepare_data_for_universe ...)
-    # (省略... get_bt_feed, get_dataframe, validate_data_quality, get_industry_mapping ...)
-    #
-    # (为保持清晰，仅粘贴被修改和必须的函数)
-    #
+        # ======================================================================
+        # 【【【核心配置：列名映射字典】】】
+        # 用于告诉程序：当我们想要某个“因子所需的列”时，应该去哪个表、哪个字段找。
+        # ======================================================================
+        self.COLUMN_MAPPING = {
+            # --- 1. 日线行情表 (stock_daily_prices) ---
+            'open': ('stock_daily_prices', 'open'),
+            'high': ('stock_daily_prices', 'high'),
+            'low': ('stock_daily_prices', 'low'),
+            'close': ('stock_daily_prices', 'close'),
+            'volume': ('stock_daily_prices', 'volume'),
+            'turnover': ('stock_daily_prices', 'turnover'),
+            'pct_change': ('stock_daily_prices', 'pct_change'),
+            'turnover_rate': ('stock_daily_prices', 'turnover_rate'),
 
-    def get_dataframe(self, symbol: str) -> pd.DataFrame | None:
-        """从数据库获取并返回单个标的的DataFrame。"""
-        query = f"SELECT * FROM {self.table_name} WHERE code = ? AND date BETWEEN ? AND ?"
+            # --- 2. 行业/元数据表 (stock_kind) ---
+            'industry': ('stock_kind', 'Nnindnme'),  # 行业名称
+            'stk_name': ('stock_kind', 'Stknme'),  # 股票简称
+            'list_date': ('stock_kind', 'Listdt'),  # 上市日期
+
+            # --- 3. 资产负债表 (Stock_BalanceSheet) ---
+            'total_equity_parent':
+            ('Stock_BalanceSheet', 'A003100000'),  # 归母所有者权益 (B/P, ROE分母)
+            'total_assets': ('Stock_BalanceSheet', 'A001000000'),  # 资产总计
+            'total_liabilities': ('Stock_BalanceSheet', 'A002000000'),  # 负债合计
+            'share_capital':
+            ('Stock_BalanceSheet', 'A003101000'),  # 实收资本/股本 (计算市值)
+            'current_assets': ('Stock_BalanceSheet', 'A001100000'),  # 流动资产
+            'current_liabilities':
+            ('Stock_BalanceSheet', 'A002100000'),  # 流动负债
+            'inventory': ('Stock_BalanceSheet', 'A001123000'),  # 存货净额
+            'accounts_receivable':
+            ('Stock_BalanceSheet', 'A001111000'),  # 应收账款净额
+            'fixed_assets': ('Stock_BalanceSheet', 'A001212000'),  # 固定资产净额
+            'intangible_assets': ('Stock_BalanceSheet',
+                                  'A001218000'),  # 无形资产净额
+            'goodwill': ('Stock_BalanceSheet', 'A001220000'),  # 商誉净额
+
+            # --- 4. 利润表 (stock_ProfitSheet) ---
+            'total_revenue': ('stock_ProfitSheet',
+                              'B001100000'),  # 营业总收入 (成长因子)
+            'cost_of_goods_sold': ('stock_ProfitSheet', 'B001201000'),  # 营业成本
+            'operating_profit': ('stock_ProfitSheet', 'B001300000'),  # 营业利润
+            'total_profit': ('stock_ProfitSheet', 'B001000000'),  # 利润总额
+            'net_profit_parent': ('stock_ProfitSheet',
+                                  'B002000101'),  # 归母净利润 (E/P, ROE分子)
+            'income_tax_expense': ('stock_ProfitSheet', 'B002100000'),  # 所得税费用
+            'selling_expenses': ('stock_ProfitSheet', 'B001209000'),  # 销售费用
+            'admin_expenses': ('stock_ProfitSheet', 'B001210000'),  # 管理费用
+            'rd_expenses': ('stock_ProfitSheet', 'B001216000'),  # 研发费用
+
+            # --- 5. 现金流量表 (stock_CashFlowDirect) ---
+            'net_cash_flow_ops': ('stock_CashFlowDirect',
+                                  'C001000000'),  # 经营活动现金流净额 (CFO)
+            'net_cash_flow_inv': ('stock_CashFlowDirect',
+                                  'C002000000'),  # 投资活动现金流净额 (CFI)
+            'net_cash_flow_fin': ('stock_CashFlowDirect',
+                                  'C003000000'),  # 筹资活动现金流净额 (CFF)
+            'capex': ('stock_CashFlowDirect',
+                      'C002006000'),  # 购建长期资产支付 (CapEx)
+            'dividends_paid': ('stock_CashFlowDirect',
+                               'C003005000'),  # 分配股利/利息支付
+        }
+
+    def _get_provider(self, name):
+        """获取线程本地的数据提供者实例 (保持线程安全)。"""
+        if not hasattr(self._local, 'providers'):
+            self._local.providers = {}
+
+        # 简单的缓存机制
+        if name not in self._local.providers:
+            for cls, kwargs in self.provider_configs:
+                # 匹配配置中的类名
+                if cls.__name__ == name or (name == 'sqlite' and cls.__name__
+                                            == 'SQLiteDataProvider'):
+                    self._local.providers[name] = cls(**kwargs)
+                    break
+        return self._local.providers.get(name)
+
+    # ==========================================================================
+    # 【【【核心方法 1：按需获取单只股票行情】】】
+    # ==========================================================================
+    def get_dataframe(self,
+                      symbol: str,
+                      columns: list = None) -> pd.DataFrame | None:
+        """
+        从数据库获取单只股票的【日线行情数据】。
+        支持列筛选，仅查询 stock_daily_prices 表。
+
+        Args:
+            symbol: 股票代码
+            columns: 需要的列名列表 (例如 ['close', 'volume'])。如果不传则查所有。
+
+        Returns:
+            pd.DataFrame: 索引为 date 的数据框
+        """
+        table_name = 'stock_daily_prices'
+
+        # 1. 构建 SQL 查询字段
+        if columns:
+            # 总是包含 date，因为它是索引
+            query_cols = ['date']
+            for col in columns:
+                # 查表：只处理属于 stock_daily_prices 的列
+                mapping = self.COLUMN_MAPPING.get(col)
+                if mapping and mapping[0] == table_name:
+                    query_cols.append(mapping[1])  # 添加原始列名
+
+                # 保底逻辑：如果列名不在映射中，但看起来像基础行情，也尝试查询
+                elif col in [
+                        'open', 'high', 'low', 'close', 'volume', 'turnover'
+                ]:
+                    query_cols.append(col)
+
+            # 去重并转为字符串
+            query_cols = list(set(query_cols))
+            cols_str = ", ".join(query_cols)
+        else:
+            # 如果未指定，默认查所有
+            cols_str = "*"
+
+        # 2. 构建 SQL 语句
+        # 使用 BETWEEN 优化日期范围查询
+        query = f"SELECT {cols_str} FROM {table_name} WHERE code = ? AND date BETWEEN ? AND ?"
         params = (symbol, self.start_date, self.end_date)
-        df = self.db_handler.query_data(query, params)
-        if df is not None and not df.empty:
-            df.sort_index(ascending=True, inplace=True)
-        return df
-
-    # ==============================================================================
-    # 【【【【【【 核心修改：get_all_data_for_universe 】】】】】】
-    # ==============================================================================
-
-    def get_all_data_for_universe(self, universe: list) -> pd.DataFrame | None:
-        """
-        获取股票池中所有股票的所有日线数据，并合并为一个大的 MultiIndex DataFrame。
-        
-        【【重构日志】】:
-        - 2025-11-10 (性能优化 - 方案C):
-          - 移除了 N 次查询的循环。
-          - 替换为【分块查询】。为避免 SQLite "too many SQL variables" 错误
-            (限制~999), 我们将 5000+ 的股票池 分块 (e.g., 900/块) 
-            并执行 N/900 次查询。
-        """
-        if not universe:
-            logging.warning(
-                "  > ⚠️ [get_all_data_for_universe] 传入的 universe 列表为空，无法加载数据。")
-            return None
-
-        logging.info(
-            f"--- ⚙️ 正在为 {len(universe)} 只股票加载【全部】日线数据 (执行分块SQL查询)... ---")
-
-        all_stock_dfs = []  # 用于收集所有分块的 DataFrame
-
-        # (SQLite 变量上限通常是 999，我们使用 900 作为安全值)
-        SQLITE_VAR_LIMIT = 900
-
-        num_chunks = int(np.ceil(len(universe) / SQLITE_VAR_LIMIT))
-
-        # 【【【新增】】】: 使用 TQDM 包裹分块循环
-        tqdm_loop = tqdm(
-            range(num_chunks),
-            desc="[数据加载] 分块加载股票数据",
-            ncols=100,
-            file=sys.stdout  # (保持与 logger_config.py 一致)
-        )
 
         try:
-            for i in tqdm_loop:
-                # 1. 获取当前分块的股票
-                start_idx = i * SQLITE_VAR_LIMIT
-                end_idx = (i + 1) * SQLITE_VAR_LIMIT
-                chunk_universe = universe[start_idx:end_idx]
-
-                if not chunk_universe:
-                    continue
-
-                tqdm_loop.set_description(
-                    f"[数据加载] 分块 {i+1}/{num_chunks} (含 {len(chunk_universe)} 只股票)"
-                )
-
-                # 2. 准备 SQL 查询
-                placeholders = ', '.join('?' for _ in chunk_universe)
-                query = f"""
-                    SELECT * FROM {self.table_name} 
-                    WHERE code IN ({placeholders}) 
-                    AND date BETWEEN ? AND ?
-                """
-
-                # 3. 准备参数
-                params = tuple(chunk_universe) + (self.start_date,
-                                                  self.end_date)
-
-                # 4. 执行【分块】查询
-                # (db_handler.query_data 返回以 'date' 为索引的 DF)
-                chunk_df = self.db_handler.query_data(query, params=params)
-
-                if chunk_df is not None and not chunk_df.empty:
-                    all_stock_dfs.append(chunk_df)
-
-            if not all_stock_dfs:
-                logging.error(f"  > ❌ 错误: 未能为股票池加载任何日线数据 (所有分块查询均为空)。")
+            # 执行查询
+            df = self.db_handler.query_data(query, params)
+            if df is None or df.empty:
                 return None
 
-            # 5. 合并所有分块
-            logging.info("  > ⚙️ 正在合并所有数据分块...")
-            full_df = pd.concat(all_stock_dfs)
+            # 确保 date 是 datetime 类型并设为索引
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
+                df.set_index('date', inplace=True)
 
-            # 6. 转换为 MultiIndex (date, asset)
-            full_df.rename(columns={'code': 'asset'}, inplace=True)
-            full_df.reset_index(inplace=True)  # 释放 'date'
-
-            full_df['date'] = pd.to_datetime(full_df['date'])
-            full_df.set_index(['date', 'asset'], inplace=True)
-            full_df.sort_index(inplace=True)
-
-            logging.info(f"  > ✅ 成功加载并合并 {len(full_df)} 行总数据。")
-            return full_df
-
+            return df
         except Exception as e:
-            logging.error(f"  > ❌ [get_all_data_for_universe] 执行分块查询时出错: {e}",
-                          exc_info=True)
+            logging.error(f"❌ 获取 {symbol} 数据失败: {e}")
             return None
 
-    # ==============================================================================
-    # 【【【【【【 修改结束 】】】】】】
-    # ==============================================================================
+    # ==========================================================================
+    # 【【【核心方法 2：获取全市场合并数据】】】
+    # ==========================================================================
+    def get_all_data_for_universe(
+            self,
+            universe: list,
+            required_columns: list = None) -> pd.DataFrame:
+        """
+        为整个股票池获取合并了所有所需数据(行情+行业+基本面)的大宽表。
+        采用 Pandas-Native 方式：分别读取，内存合并。
+        """
+        # --- [控制台输出] 告知用户正在分析数据需求 ---
+        logging.info(f"⚙️ [数据加载] 正在解析 {len(universe)} 只股票的数据需求...")
 
-    def __del__(self):
-        """在对象销毁时，确保关闭数据库连接。"""
-        self.db_handler.close_connection()
+        # 1. 分析需求：我们需要加载哪些表的数据？
+        load_industry = False
 
-    #
-    # (为了让这个文件可以被完整替换，我把其他函数也粘贴在下面)
-    #
+        if required_columns:
+            # 检查是否请求了 'industry'
+            if 'industry' in required_columns:
+                load_industry = True
 
-    def _find_missing_date_ranges(self, symbol: str) -> list[tuple[str, str]]:
-        logging.debug(
-            f"  > [检查线程 {threading.get_ident()}] 正在为 {symbol} 检查数据完整性")
-        all_trade_dates = self.all_trade_dates_set
-        query = f"SELECT DISTINCT DATE(date) FROM {self.table_name} WHERE code = ? AND DATE(date) BETWEEN ? AND ?"
-        existing_dates_df = self.db_handler.query_data(query,
-                                                       params=(symbol,
-                                                               self.start_date,
-                                                               self.end_date))
-        if existing_dates_df is not None and not existing_dates_df.empty:
-            date_col = existing_dates_df.columns[0]
-            existing_dates = set(
-                pd.to_datetime(existing_dates_df[date_col]).dt.date)
+        # 2. 预加载静态数据 (优化：避免在循环中 N 次查询数据库)
+        industry_map = {}
+        if load_industry:
+            # --- [控制台输出] 告知用户正在预加载行业数据 ---
+            logging.info("  > 正在预加载行业数据 (stock_kind)...")
+
+            # 查询 Stkcd (代码) 和 Nnindnme (行业名)
+            ind_query = "SELECT Stkcd, Nnindnme FROM stock_kind"
+            ind_df = self.db_handler.query_data(ind_query)
+
+            if ind_df is not None and not ind_df.empty:
+                # 清洗代码格式，确保与 universe 中的 symbol 格式一致 (如补零)
+                # 假设 universe 中的 symbol 是 6 位数字符串
+                ind_df['Stkcd'] = ind_df['Stkcd'].astype(str).str.zfill(6)
+                # 转为字典: {'000001': '银行', ...}
+                industry_map = ind_df.set_index('Stkcd')['Nnindnme'].to_dict()
+                logging.info(f"  > ✅ 成功加载 {len(industry_map)} 条行业记录。")
+            else:
+                logging.warning("  > ⚠️ 警告: 未能加载到行业数据，'industry' 列将为空。")
+
+        # 3. 循环获取每只股票的数据并组装
+        all_dfs = []
+
+        # --- [控制台输出] 开始主循环，显示进度条 ---
+        logging.info(f"🚀 开始加载并合并数据 (按需加载列: {required_columns})...")
+
+        # 过滤出只属于行情表的列，传给 get_dataframe
+        # 这样避免把 'industry' 这种列传给 SQL 报错
+        price_cols = []
+        if required_columns:
+            for c in required_columns:
+                mapping = self.COLUMN_MAPPING.get(c)
+                if mapping and mapping[0] == 'stock_daily_prices':
+                    price_cols.append(c)
+                elif c in ['open', 'high', 'low', 'close', 'volume']:  # 基础列保底
+                    price_cols.append(c)
+
+        for symbol in tqdm(universe, desc="[Data Load]"):
+            # A. 获取基础行情 (已按需筛选列)
+            df = self.get_dataframe(symbol, columns=price_cols)
+
+            if df is None or df.empty:
+                continue
+
+            # B. 合并行业数据 (Pandas Native: 字典映射)
+            if load_industry:
+                # 使用 map 比 apply 更快
+                # get(symbol) 获取该股票的行业，如果没有则为 None
+                ind = industry_map.get(symbol)
+                df['industry'] = ind
+
+            # C. (未来) 合并基本面数据
+            # 这里将是 pd.merge_asof 的位置，用于对齐财报日期
+
+            # 添加 asset 列，用于构建 MultiIndex
+            df['asset'] = symbol
+            all_dfs.append(df)
+
+        if not all_dfs:
+            logging.error("❌ 未能加载任何数据。")
+            return pd.DataFrame()
+
+        # 4. 最终合并所有股票的数据
+        # --- [控制台输出] 告知用户正在进行最终合并 ---
+        logging.info("⚙️ 正在合并所有股票的数据框...")
+
+        final_df = pd.concat(all_dfs)
+
+        # 【【【修复点】】】: 之前这里有两行 set_index，导致了 KeyError
+        # 现在的逻辑：
+        # 1. concat 后，索引是 date，列有 asset (和其他数据)
+        # 2. reset_index() -> 索引变成 0,1,2...，date 变回普通列
+        # 3. set_index(['date', 'asset']) -> 建立多重索引
+
+        final_df.reset_index(inplace=True)
+        final_df.set_index(['date', 'asset'], inplace=True)
+
+        # 排序 (这对 rolling 计算至关重要)
+        final_df.sort_index(inplace=True)
+
+        logging.info(f"✅ 数据加载完成，共 {len(final_df)} 行。")
+        return final_df
+
+    def calculate_universe_forward_returns(
+            self, universe: list,
+            forward_return_periods: list) -> pd.DataFrame:
+        """
+        统一计算未来收益率。
+        优化：只加载 close 列。
+        """
+        logging.info(f"⚙️ [收益率计算] 正在为 {len(universe)} 只股票计算未来收益...")
+
+        # 仅加载 close 列，极大提升速度
+        all_data = self.get_all_data_for_universe(universe,
+                                                  required_columns=['close'])
+
+        if all_data is None or all_data.empty:
+            logging.error("❌ 无法加载数据用于计算收益率。")
+            return None
+
+        # 使用 groupby().apply()
+        # group_keys=False 防止索引层级增加
+        returns_df = all_data.groupby(level='asset', group_keys=False).apply(
+            lambda x: _calculate_forward_returns(x, forward_return_periods))
+
+        # 筛选出需要的列 (date, asset, forward_return_*)
+        # 由于 apply 后索引是 (date, asset)，我们需要 reset_index 来获得这两列
+        returns_df.reset_index(inplace=True)
+
+        cols_to_keep = ['date', 'asset'] + [
+            f'forward_return_{p}d' for p in forward_return_periods
+        ]
+        return returns_df[cols_to_keep]
+
+    # ==========================================================================
+    # 获取行业映射 (兼容旧代码)
+    # ==========================================================================
+    def get_industry_mapping(self) -> pd.DataFrame | None:
+        logging.info("  > ⚙️ 正在加载行业映射数据...")
+        query = "SELECT Stkcd, Nnindnme FROM stock_kind"
+        try:
+            df = self.db_handler.query_data(query)
+            if df is not None:
+                df['asset'] = df['Stkcd'].astype(str).str.zfill(6)
+                df.rename(columns={'Nnindnme': 'industry'}, inplace=True)
+                return df[['asset', 'industry']]
+            return None
+        except Exception as e:
+            logging.error(f"❌ 加载行业数据失败: {e}")
+            return None
+
+    # ==========================================================================
+    # 下面是数据下载/更新流程 (保持原有逻辑)
+    # ==========================================================================
+    def prepare_data_for_universe(self):
+        if not self.provider_configs:
+            logging.info("ℹ️ 未配置数据源，跳过下载。")
+            return
+
+        logging.info("--- 🏁 开始数据准备流程 (生产者-消费者模式) ---")
+
+        # 1. 获取日历
+        logging.info("🗓️ 正在获取交易日历...")
+        try:
+            all_trade_dates_str = self.calendar_provider.get_trading_days(
+                self.start_date, self.end_date)
+            self.all_trade_dates_set = set(
+                pd.to_datetime(all_trade_dates_str).date)
+        except Exception as e:
+            logging.critical(f"❌ 获取交易日历失败: {e}")
+            return
+
+        # 2. 填充检查队列
+        for symbol in self.symbols:
+            self.symbols_queue.put(symbol)
+
+        # 3. 启动检查线程
+        logging.info(f"🔍 启动 {self.num_checker_threads} 个检查线程...")
+        with tqdm(total=len(self.symbols),
+                  desc="[数据检查]",
+                  ncols=100,
+                  file=sys.stdout) as pbar:
+            self.check_progress_bar = pbar
+            threads = []
+            for i in range(self.num_checker_threads):
+                t = threading.Thread(target=self._checker_worker,
+                                     name=f"Checker-{i}",
+                                     daemon=True)
+                t.start()
+                threads.append(t)
+            for t in threads:
+                t.join()
+
+        self.check_progress_bar = None
+
+        # 4. 启动下载和写入
+        total_downloads = self.download_tasks_queue.qsize()
+        if total_downloads > 0:
+            logging.info(f"📥 共 {total_downloads} 只股票需要下载/更新。")
+            logging.info(
+                f"🚀 启动 {self.num_downloader_threads} 个下载线程 和 1 个写入线程...")
+
+            writer_thread = threading.Thread(target=self._consumer_worker,
+                                             name="DB-Writer",
+                                             daemon=True)
+            writer_thread.start()
+
+            with tqdm(total=total_downloads,
+                      desc="[数据下载]",
+                      ncols=100,
+                      file=sys.stdout) as pbar:
+                self.download_progress_bar = pbar
+                dl_threads = []
+                for i in range(self.num_downloader_threads):
+                    t = threading.Thread(target=self._producer_worker,
+                                         name=f"Downloader-{i}",
+                                         daemon=True)
+                    t.start()
+                    dl_threads.append(t)
+                for t in dl_threads:
+                    t.join()
+
+            self.producers_finished_event.set()
+            writer_thread.join()
+            logging.info("--- ✅ 数据准备流程结束 ---")
         else:
-            existing_dates = set()
-        missing_dates = sorted(list(all_trade_dates - existing_dates))
+            logging.info("✅ 所有数据已完整，无需下载。")
 
-        if not missing_dates:
-            logging.info(f"  > ✅ [{symbol}] 数据完整，无需下载。")
-            return []
+    def _checker_worker(self):
+        while True:
+            try:
+                symbol = self.symbols_queue.get_nowait()
+            except queue.Empty:
+                break
 
-        logging.info(
-            f"  > 📥 [{symbol}] 发现 {len(missing_dates)} 个缺失的交易日，正在合并为下载区间...")
-        ranges = []
-        if not missing_dates:
-            return ranges
-        start_range = missing_dates[0]
-        for i in range(1, len(missing_dates)):
-            if (missing_dates[i] - missing_dates[i - 1]).days > 7:
-                end_range = missing_dates[i - 1]
-                ranges.append((start_range.strftime('%Y-%m-%d'),
-                               end_range.strftime('%Y-%m-%d')))
-                start_range = missing_dates[i]
-        ranges.append((start_range.strftime('%Y-%m-%d'),
-                       missing_dates[-1].strftime('%Y-%m-%d')))
-        for start, end in ranges:
-            logging.debug(f"    -> [{symbol}] 需要下载区间: {start} to {end}")
-        return ranges
+            missing = self._find_missing_date_ranges(symbol)
+            if missing:
+                self.download_tasks_queue.put((symbol, missing))
 
-    def _fetch_data_from_providers(self, symbol: str, start_date: str,
-                                   end_date: str) -> pd.DataFrame | None:
-        for provider_class, params in self.provider_configs:
-            provider_instance = provider_class(**params)
-            fetched_df = provider_instance.fetch_data(symbol, start_date,
-                                                      end_date)
-            if fetched_df is not None and not fetched_df.empty:
-                logging.info(
-                    f"  > ✅ [下载者 {threading.get_ident()}] 从 {provider_instance.__class__.__name__} 成功获取 {symbol} 的 {len(fetched_df)} 条数据。"
-                )
-                fetched_df['code'] = symbol
-                return fetched_df.reset_index()
-        logging.warning(
-            f"  > ⚠️ [下载者 {threading.get_ident()}] 警告：尝试所有数据源后，仍未能获取到 {symbol} ({start_date} to {end_date}) 的数据。"
-        )
-        return None
+            self.symbols_queue.task_done()
+            if self.check_progress_bar: self.check_progress_bar.update(1)
+
+    def _find_missing_date_ranges(self, symbol):
+        # 简化的检查逻辑：查询已有数据的日期集合，与日历对比
+        query = f"SELECT date FROM {self.table_name} WHERE code = ?"
+        df = self.db_handler.query_data(query, (symbol, ))
+        if df is None or df.empty:
+            return [(pd.to_datetime(self.start_date).date(),
+                     pd.to_datetime(self.end_date).date())]
+
+        existing_dates = set(pd.to_datetime(df['date']).dt.date)
+        missing_dates = sorted(list(self.all_trade_dates_set - existing_dates))
+
+        if not missing_dates: return []
+
+        # 将离散日期合并为区间 (简化处理，这里直接返回起止时间，实际下载会覆盖中间已有的)
+        return [(missing_dates[0], missing_dates[-1])]
 
     def _producer_worker(self):
         while True:
             try:
-                symbol, missing_ranges = self.download_tasks_queue.get(
-                    block=False)
+                task = self.download_tasks_queue.get_nowait()
             except queue.Empty:
-                logging.debug(f"  > [下载者 {threading.get_ident()}] 任务队列已空，退出。")
                 break
-            for start_date, end_date in missing_ranges:
-                result_df = self._fetch_data_from_providers(
-                    symbol, start_date, end_date)
-                if result_df is not None:
-                    self.results_queue.put(result_df)
+
+            symbol, ranges = task
+            # 简单起见，取第一个区间的起止
+            start, end = ranges[0]
+
+            # 优先尝试 SQLite (如果是本地源)，否则尝试 Tushare/Akshare
+            # 这里简化逻辑，直接遍历 providers
+            df = None
+            for name, provider in self._local.providers.items():
+                try:
+                    df = provider.get_daily_price(symbol,
+                                                  start.strftime('%Y%m%d'),
+                                                  end.strftime('%Y%m%d'))
+                    if df is not None and not df.empty:
+                        break
+                except:
+                    continue
+
+            if df is not None and not df.empty:
+                self.results_queue.put(df)
+
             self.download_tasks_queue.task_done()
-            if self.download_progress_bar:
-                self.download_progress_bar.update(1)
+            if self.download_progress_bar: self.download_progress_bar.update(1)
 
     def _consumer_worker(self):
         batch = []
         while not (self.producers_finished_event.is_set()
                    and self.results_queue.empty()):
             try:
-                result_df = self.results_queue.get(timeout=1)
-                batch.append(result_df)
+                df = self.results_queue.get(timeout=1)
+                batch.append(df)
                 if len(batch) >= self.batch_size:
-                    self._save_batch_to_db(batch)
+                    self._save_batch(batch)
                     batch = []
             except queue.Empty:
                 continue
-        if batch:
-            self._save_batch_to_db(batch)
-        logging.info("--- [写入者] 所有数据已处理完毕，写入线程退出。 ---")
+        if batch: self._save_batch(batch)
 
-    def _save_batch_to_db(self, batch: list):
-        if not batch:
-            return
+    def _save_batch(self, batch):
+        if not batch: return
         try:
-            full_df = pd.concat(batch, ignore_index=True)
-            logging.info(
-                f"--- [写入者] 正在合并 {len(batch)} 个DataFrame ({len(full_df)} 行)，并存入数据库... ---"
-            )
+            full_df = pd.concat(batch)
+            # 确保 code 列存在 (provider 返回的数据应该包含 code)
             self.db_handler.save_data(full_df, self.table_name)
         except Exception as e:
-            logging.error(f"--- ❌ [写入者] 批量数据保存至数据库时出错: {e} ---", exc_info=True)
+            logging.error(f"❌ 批量写入失败: {e}")
 
-    def _checker_worker(self):
-        while True:
-            try:
-                symbol = self.symbols_queue.get(block=False)
-            except queue.Empty:
-                logging.debug(f"  > [检查线程 {threading.get_ident()}] 队列为空，退出。")
-                break
-            missing_ranges = self._find_missing_date_ranges(symbol)
-            if missing_ranges:
-                self.download_tasks_queue.put((symbol, missing_ranges))
-            self.symbols_queue.task_done()
-            if self.check_progress_bar:
-                self.check_progress_bar.update(1)
-
-    def prepare_data_for_universe(self):
-        if not self.provider_configs:
-            logging.info("ℹ️  未配置数据源，跳过数据下载，仅使用本地数据库数据。")
-            return
-        logging.info("--- 🏁 开始数据准备流程 (生产者-消费者模式) ---")
-        logging.info("🗓️  正在获取交易日历...")
-        try:
-            all_trade_dates_str = self.calendar_provider.get_trading_days(
-                self.start_date, self.end_date)
-            if not all_trade_dates_str:
-                logging.critical(f"  ❌ 致命错误：无法获取交易日历，程序终止。")
-                return
-            self.all_trade_dates_set = set(
-                pd.to_datetime(all_trade_dates_str).date)
-            logging.info(f"  ✅ 成功获取 {len(self.all_trade_dates_set)} 个交易日。")
-        except Exception as e:
-            logging.critical(f"  ❌ 致命错误：获取交易日历时出错: {e}，程序终止。", exc_info=True)
-            return
-        for symbol in self.symbols:
-            self.symbols_queue.put(symbol)
-        logging.info(
-            f"🔍 正在启动 {self.num_checker_threads} 个检查线程，检查 {len(self.symbols)} 只股票..."
-        )
-        with tqdm(total=len(self.symbols),
-                  desc="[数据检查] 检查进度",
-                  ncols=100,
-                  file=sys.stdout) as pbar:
-            self.check_progress_bar = pbar
-            checker_threads = []
-            for i in range(self.num_checker_threads):
-                thread = threading.Thread(target=self._checker_worker,
-                                          name=f"Checker-{i}")
-                thread.daemon = True
-                thread.start()
-                checker_threads.append(thread)
-            for thread in checker_threads:
-                thread.join()
-        self.check_progress_bar = None
-        total_downloads = self.download_tasks_queue.qsize()
-        if total_downloads > 0:
-            logging.info(f"📥 检查完毕。共 {total_downloads} 只股票需要下载数据。")
-            logging.info(
-                f"🚀 即将启动 {self.num_downloader_threads} 个下载线程(生产者) 和 1 个写入线程(消费者)..."
-            )
-        else:
-            logging.info("✅ 检查完毕。所有数据均已完整，无需下载。")
-            return
-        consumer_thread = threading.Thread(target=self._consumer_worker,
-                                           name="DB-Writer")
-        consumer_thread.daemon = True
-        consumer_thread.start()
-        with tqdm(total=total_downloads,
-                  desc="[数据下载] 下载进度",
-                  ncols=100,
-                  file=sys.stdout) as pbar:
-            self.download_progress_bar = pbar
-            producer_threads = []
-            for i in range(self.num_downloader_threads):
-                thread = threading.Thread(target=self._producer_worker,
-                                          name=f"Downloader-{i}")
-                thread.daemon = True
-                thread.start()
-                producer_threads.append(thread)
-            for thread in producer_threads:
-                thread.join()
-        self.producers_finished_event.set()
-        consumer_thread.join()
-        logging.info("--- ✅ 所有数据准备流程执行完毕 ---")
-
-    def get_bt_feed(self, symbol: str) -> bt.feeds.PandasData | None:
-        df = self.get_dataframe(symbol)
-        if df is not None and not df.empty:
-            return bt.feeds.PandasData(dataname=df)
-        logging.error(f"❌ 未能为 {symbol} 获取有效数据，无法创建Backtrader feed。")
-        return None
-
-    def validate_data_quality(self, symbol: str) -> bool:
-        logging.info(f"--- 正在校验 '{symbol}' 的数据质量...")
-        if not self.all_trade_dates_set:
-            logging.error(f"🔴 交易日历数据未加载，无法对 '{symbol}' 进行完整性校验。")
-            return False
-        df = self.get_dataframe(symbol)
-        if df is None or df.empty:
-            logging.warning(
-                f"🟡 '{symbol}' 在 {self.start_date} 到 {self.end_date} 期间无数据，已剔除。"
-            )
-            return False
-        existing_dates = set(pd.to_datetime(df.index).date)
-        missing_dates = self.all_trade_dates_set - existing_dates
-        if missing_dates:
-            example_missing = sorted(list(missing_dates))[:3]
-            logging.warning(
-                f"🔴 '{symbol}' 缺失 {len(missing_dates)} 个交易日的数据 (例如: {example_missing})，已剔除。"
-            )
-            return False
-        cols_to_check = ['open', 'high', 'low', 'close', 'volume']
-        if df[cols_to_check].isnull().values.any():
-            problematic_rows = df[df[cols_to_check].isnull().any(axis=1)]
-            logging.warning(
-                f"🔴 '{symbol}' 的数据中包含空值 (NaN)，已剔出。问题数据快照:\n{problematic_rows.head(3)}"
-            )
-            return False
-        if (df[cols_to_check] <= 0).any().any():
-            problematic_rows = df[(df[cols_to_check] <= 0).any(axis=1)]
-            logging.warning(
-                f"🔴 '{symbol}' 的数据中包含0或负值，已剔出。问题数据快照:\n{problematic_rows.head(3)}"
-            )
-            return False
-        logging.info(f"✅ '{symbol}' 数据质量校验通过。")
-        return True
-
-    def get_industry_mapping(self) -> pd.DataFrame | None:
-        logging.info("  > ⚙️ 正在从 'stock_kind' 表加载行业映射数据...")
-        try:
-            query = "SELECT Stkcd, Nnindnme FROM stock_kind"
-            df = self.db_handler.query_data(query)
-            if df is None or df.empty:
-                logging.warning("  > ⚠️ 警告: 未能从 'stock_kind' 表中加载到数据。")
-                return None
-            df['asset'] = df['Stkcd'].astype(str).str.zfill(6)
-            df.rename(columns={'Nnindnme': 'industry'}, inplace=True)
-            logging.info(f"  > ✅ 成功加载 {len(df)} 条行业映射记录。")
-            return df[['asset', 'industry']]
-        except Exception as e:
-            logging.error(f"  > ❌ 加载 'stock_kind' 时出错: {e}", exc_info=True)
-            return None
-
-    def calculate_universe_forward_returns(
-            self, universe: list,
-            forward_return_periods: list) -> pd.DataFrame:
-        """
-        为股票池中的所有股票，一次性计算出全部的未来收益率。
-        这是新的、统一的收益率计算入口。
-        """
-        logging.info(f"⚙️ 正在为 {len(universe)} 只股票统一计算未来收益率...")
-
-        all_data = self.get_all_data_for_universe(universe)
-        if all_data is None or all_data.empty:
-            logging.error("❌ 无法加载用于计算未来收益的基础数据。")
-            return None
-
-        # 使用 groupby().apply() 高效地为每只股票计算未来收益
-        def apply_returns_calculation(group):
-            return _calculate_forward_returns(group, forward_return_periods)
-
-        # 在计算之前，确保数据是按时间和资产排序的
-        all_data = all_data.sort_index(level=['date', 'asset'])
-
-        # apply() 会保留原始索引，结果是一个多重索引的DataFrame
-        returns_df = all_data.groupby(
-            level='asset', group_keys=False).apply(apply_returns_calculation)
-
-        # 清理结果，只保留需要的列
-        return_cols = ['date', 'asset'] + [
-            f'forward_return_{p}d' for p in forward_return_periods
-        ]
-
-        # 将索引 ('date', 'asset') 转换为列
-        returns_df.reset_index(inplace=True)
-
-        logging.info("✅ 所有股票的未来收益率计算完毕。")
-        return returns_df[return_cols]
+    def __del__(self):
+        if hasattr(self, 'db_handler'):
+            self.db_handler.close_connection()

@@ -23,7 +23,10 @@ ROLLING_ICIR_STRATEGY = StrategyConfig(combiner_class=DynamicWeightCombiner,
                                            'REBALANCE_FREQUENCY': 'D',
                                            'FACTOR_WEIGHTING_CONFIG': {
                                                'Momentum': 'ic_mean_30d',
-                                               'Reversal20D': 'ir_30d'
+                                               'Reversal20D': 'ir_30d',
+                                               'IndNeu_Momentum': 'ir_20d',
+                                               'IndNeu_Reversal20D': 'ir_5d',
+                                               'IndNeu_VolumeCV': 'ic_mean_10d'
                                            }
                                        })
 

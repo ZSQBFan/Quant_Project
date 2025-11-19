@@ -18,8 +18,8 @@ class FactorCalculator:
                  end_date,
                  factor_name,
                  factor_params,
-                 forward_return_periods,
-                 num_threads=8):
+                 num_threads=8,
+                 required_columns=None):  # 【【【新增参数】】】
         self.provider_configs = provider_configs
         self.db_path = db_path
         self.universe = universe
@@ -27,9 +27,9 @@ class FactorCalculator:
         self.end_date = end_date
         self.factor_name = factor_name
         self.factor_params = factor_params
-        # 【【【移除】】】: forward_return_periods 不再需要
-        # self.forward_return_periods = forward_return_periods
         self.num_threads = num_threads
+        self.required_columns = required_columns  # 【【【保存参数】】】
+
         self.data_manager = DataProviderManager(
             provider_configs=self.provider_configs,
             db_path=self.db_path,
@@ -37,14 +37,11 @@ class FactorCalculator:
             start_date=self.start_date,
             end_date=self.end_date)
 
-    # 【【【移除】】】: _calculate_forward_returns 函数已被移至 data_manager.py
-
     def _process_single_symbol(self, symbol: str) -> pd.DataFrame:
-        """
-        【【【修改】】】: 现在只处理单个股票的因子计算。
-        """
         try:
-            df = self.data_manager.get_dataframe(symbol)
+            # 【【【修改】】】: 传递 required_columns
+            df = self.data_manager.get_dataframe(symbol,
+                                                 columns=self.required_columns)
             if df is None or df.empty:
                 return None
 
@@ -68,12 +65,8 @@ class FactorCalculator:
             logging.error(f"❌ 处理股票 {symbol} 时发生错误: {e}", exc_info=True)
             return None
 
-    # 【【【【【【 核心修改 】】】】】】
     def calculate_factor(self) -> pd.DataFrame:
-        """
-        为股票池中的所有股票计算指定的因子值。
-        这是新的、唯一的公共方法，取代了 calculate_factor_and_returns。
-        """
+        # (保持不变)
         all_factor_data = []
         with ProcessPoolExecutor(max_workers=self.num_threads) as executor:
             futures = {
@@ -95,7 +88,6 @@ class FactorCalculator:
                                   exc_info=True)
 
         if not all_factor_data:
-            logging.warning(f"⚠️ 警告 ({self.factor_name}): 未找到任何有效数据进行处理。")
             return pd.DataFrame()
 
         final_df = pd.concat(all_factor_data, ignore_index=True)
