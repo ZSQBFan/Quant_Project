@@ -5,16 +5,22 @@ import pandas_ta as ta
 import logging
 import functools  # (用于 Reversal20D 辅助函数)
 """
-【【【复合因子（Type 2）计算中心 (重构版)】】】
 
-【【重构日志】】:
-- 2025-11-10 (新增因子):
-  - 增加了 'calculate_industry_neutral_volume_cv' (成交量变异系数)
-  - 增加了 'calculate_industry_neutral_reversal20d'
-  - 增加了 'calculate_industry_neutral_adxdmi'
-- 2025-11-10 (结构重构):
-  - 将辅助函数 (helper) 与其对应的计算函数 (calculator) 放在一起。
-  - 将通用的辅助函数 (_neutralize_by_industry) 移至顶部。
+【【【复合因子（Type 2）计算中心】】】
+
+复合因子使用全量宽表数据进行向量化计算，
+并且通常包含行业中性化步骤。
+每个因子的计算函数接受一个 DataFrame 参数:
+
+- all_data_df: pd.DataFrame
+    索引为 (date, asset) 的 MultiIndex DataFrame，
+    包含计算该因子所需的所有列数据。
+
+返回值:
+- pd.Series
+    索引为 (date, asset) 的 MultiIndex Series，
+    包含计算得到的因子值。
+
 """
 
 # ------------------------------------------------------------------------------
@@ -377,12 +383,38 @@ def calculate_industry_neutral_roe(all_data_df: pd.DataFrame) -> pd.Series:
                                    factor_name)
 
 
-# def calculate_industry_neutral_sales_growth(
-#         all_data_df: pd.DataFrame) -> pd.Series:
-#     """
-#     计算行业中性的营收增长率 (Sales Growth YoY)。
-#     """
-#一个未完成的因子，暂时不要启用
+def calculate_industry_neutral_sales_growth(
+        all_data_df: pd.DataFrame) -> pd.Series:
+    """
+    计算行业中性的营收增长率 (Sales Growth YoY)。
+    逻辑: (当前总营收 - 去年同期总营收) / 去年同期总营收
+    注意: 使用 252 个交易日作为一年的近似滞后期。
+    """
+    factor_name = "IndNeu_SalesGrowth"
+    # 确保列名与数据库/数据源一致，这里假设为 'total_revenue'
+    cols_needed = ['industry', 'total_revenue']
+
+    if not all(col in all_data_df.columns for col in cols_needed):
+        logging.error(f"❌ [{factor_name}] 无法计算：缺少必要列 {cols_needed}。")
+        return None
+
+    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name}...")
+
+    # 1. 计算基础增长率 (YoY)
+    # 使用 groupby(level='asset') 确保只在同一只股票的时间序列内计算
+    logging.info(f"      > (1/2) 正在计算基础 {factor_name} (YoY, lag=252)...")
+
+    # pct_change(252) 计算 (Today - Today-252) / Today-252
+    raw_growth = all_data_df.groupby(
+        level='asset')['total_revenue'].pct_change(periods=252)
+
+    # 2. 极值处理
+    # 营收增长率可能因基数极小出现极端值，将其视为无效
+    raw_growth = raw_growth.replace([np.inf, -np.inf], np.nan)
+
+    # 3. 行业中性化
+    return _neutralize_by_industry(raw_growth, all_data_df['industry'],
+                                   factor_name)
 
 
 def calculate_industry_neutral_cfop(all_data_df: pd.DataFrame) -> pd.Series:

@@ -105,12 +105,12 @@ FACTOR_REGISTRY = {
         'description':
         "行业中性的净资产收益率 (ROE)"
     },
-    # 'IndNeu_SalesGrowth': {
-    #     'category': 'complex',
-    #     'params': {},
-    #     'required_columns': [],
-    #     'description': "行业中性的营收同比增长率 (YoY)"
-    # },
+    'IndNeu_SalesGrowth': {
+        'category': 'complex',
+        'params': {},
+        'required_columns': ['total_revenue', 'industry'],
+        'description': "行业中性的营收同比增长率 (YoY)"
+    },
     'IndNeu_CFOP': {
         'category':
         'complex',

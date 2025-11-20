@@ -43,7 +43,7 @@ FACTORS_TO_RUN = [
     "IndNeu_EP",
     # "IndNeu_BP"
     # "IndNeu_ROE",
-    # "IndNeu_SalesGrowth",#这个因子有问题，暂时不要启用
+    "IndNeu_SalesGrowth",  #这个因子有待完成
     "IndNeu_CFOP",
     "IndNeu_GPM",
     # "IndNeu_AssetTurnover",
