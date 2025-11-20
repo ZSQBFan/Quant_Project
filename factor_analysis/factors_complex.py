@@ -377,43 +377,12 @@ def calculate_industry_neutral_roe(all_data_df: pd.DataFrame) -> pd.Series:
                                    factor_name)
 
 
-def calculate_industry_neutral_sales_growth(all_data_df: pd.DataFrame,
-                                            window: int = 242) -> pd.Series:
-    """
-    计算行业中性的营收增长率 (Sales Growth YoY)。
-    注意：由于财报数据已经 ffill 到日频，我们取 shift(242) 约等于一年前的数据。
-    """
-    factor_name = "IndNeu_SalesGrowth"
-    logging.info(f"    > ⚙️ 正在计算 (Type 2): {factor_name} (Window={window})...")
-
-    revenue = all_data_df['total_revenue']
-
-    # 1. 计算同比增长率
-    # 需要按 asset 分组后 shift
-    # 这里的 all_data_df 已经是 MultiIndex (date, asset)，需要先 groupby asset
-    def calculate_pct_change(series):
-        return series.pct_change(periods=window)
-
-    # reset_index 以便 groupby asset
-    # 注意：all_data_df 必须是按 date 排序的，data_manager 保证了这一点
-    # 但为了 groupby 效率，我们通常操作 Series
-
-    # 这是一个稍微耗时的操作，但对于 Type 2 因子是可以接受的
-    raw_growth = revenue.groupby('asset').apply(
-        lambda x: x.pct_change(periods=window))
-
-    # 清理 groupby 产生的多级索引问题 (如果 apply 没有保留原始索引结构)
-    # 通常 groupby(level='asset').pct_change() 会保留原始索引
-    if raw_growth.index.equals(revenue.index):
-        pass  # 索引一致，直接使用
-    else:
-        # 如果索引乱了，尝试恢复 (视 pandas 版本而定，通常直接 apply(pct_change) 会保留原索引)
-        raw_growth = raw_growth.reindex(revenue.index)
-
-    raw_growth = raw_growth.replace([np.inf, -np.inf], np.nan)
-
-    return _neutralize_by_industry(raw_growth, all_data_df['industry'],
-                                   factor_name)
+# def calculate_industry_neutral_sales_growth(
+#         all_data_df: pd.DataFrame) -> pd.Series:
+#     """
+#     计算行业中性的营收增长率 (Sales Growth YoY)。
+#     """
+#一个未完成的因子，暂时不要启用
 
 
 def calculate_industry_neutral_cfop(all_data_df: pd.DataFrame) -> pd.Series:

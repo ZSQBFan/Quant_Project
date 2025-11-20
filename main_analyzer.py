@@ -5,6 +5,7 @@ import logging
 import pandas as pd
 from tqdm import tqdm
 import sys
+import datetime
 
 # ==============================================================================
 # 1. 策略分析“控制面板” (Strategy Analysis "Control Panel")
@@ -15,11 +16,11 @@ from strategy_configs import STRATEGY_REGISTRY
 
 # 【【请在这里选择您的策略名称 (从 strategy_configs.py 复制)】】
 # STRATEGY_NAME = "RollingICIR"
-# STRATEGY_NAME = "RollingRegression"
+STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
-STRATEGY_NAME = "LightGBM_Periodic"
+# STRATEGY_NAME = "LightGBM_Periodic"
 
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
     raise ValueError(f"策略 '{STRATEGY_NAME}' 未在 strategy_configs.py 中注册。")
@@ -42,7 +43,7 @@ FACTORS_TO_RUN = [
     "IndNeu_EP",
     # "IndNeu_BP"
     # "IndNeu_ROE",
-    # "IndNeu_SalesGrowth",
+    # "IndNeu_SalesGrowth",#这个因子有问题，暂时不要启用
     "IndNeu_CFOP",
     "IndNeu_GPM",
     # "IndNeu_AssetTurnover",
@@ -72,8 +73,8 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer  #跨度Z分数标准化
 SKIP_DATA_PREPARATION = True
 
 # --- 2a. 回测时间与收益周期 ---
-START_DATE = '2018-01-01'
-END_DATE = '2020-12-31'
+START_DATE = '2016-01-01'
+END_DATE = '2024-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 20, 30, 90]
 
 # --- 2b. 基准与股票池 ---
@@ -413,8 +414,10 @@ if __name__ == '__main__':
             if "Standardizer" in std_name:
                 std_name = std_name.replace("Standardizer", "")
 
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = os.path.join(
-                OUTPUT_DIR, f"report_{final_factor_name}_{std_name}.html")
+                OUTPUT_DIR,
+                f"report_{final_factor_name}_{std_name}_{timestamp}.html")
 
             logging.info(f"⚙️ 生成 HTML 报告: {output_filename}")
             report_generator.generate_html_report(output_filename)
