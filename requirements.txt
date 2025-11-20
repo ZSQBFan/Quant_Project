@@ -1,8 +1,41 @@
-joblib==1.5.2
-narwhals==2.7.0
-numpy==2.3.3
-packaging==25.0
-plotly==6.3.1
-scikit-learn==1.7.2
-scipy==1.16.2
-threadpoolctl==3.6.0
+# 量化投资分析系统依赖包
+
+# 核心数据处理
+pandas>=1.5.0
+numpy>=1.21.0
+
+# 数据获取
+akshare>=1.10.0
+tushare>=1.2.89
+
+# 机器学习与AI
+scikit-learn>=1.0.0
+lightgbm>=3.3.0
+
+# 技术分析与指标
+pandas_ta>=0.3.14
+
+# 回测框架
+backtrader>=1.9.78
+
+# 可视化
+plotly>=5.0.0
+matplotlib>=3.5.0
+
+# 科学计算
+scipy>=1.7.0
+
+# 并行计算
+joblib>=1.2.0
+
+# 进度条
+tqdm>=4.64.0
+
+# 数据框架工具
+narwhals>=1.0.0
+
+# 包管理
+packaging>=21.0
+
+# 线程控制
+threadpoolctl>=3.0.0
