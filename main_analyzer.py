@@ -16,11 +16,12 @@ from strategy_configs import STRATEGY_REGISTRY
 
 # 【【请在这里选择您的策略名称 (从 strategy_configs.py 复制)】】
 # STRATEGY_NAME = "RollingICIR"
-STRATEGY_NAME = "RollingRegression"
+# STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
 # STRATEGY_NAME = "LightGBM_Periodic"
+STRATEGY_NAME = "AdversarialLLM"
 
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
     raise ValueError(f"策略 '{STRATEGY_NAME}' 未在 strategy_configs.py 中注册。")
@@ -43,7 +44,7 @@ FACTORS_TO_RUN = [
     "IndNeu_EP",
     # "IndNeu_BP"
     # "IndNeu_ROE",
-    "IndNeu_SalesGrowth",  #这个因子有待完成
+    "IndNeu_SalesGrowth",  #似乎有点问题？
     "IndNeu_CFOP",
     "IndNeu_GPM",
     # "IndNeu_AssetTurnover",
@@ -73,7 +74,7 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer  #跨度Z分数标准化
 SKIP_DATA_PREPARATION = True
 
 # --- 2a. 回测时间与收益周期 ---
-START_DATE = '2016-01-01'
+START_DATE = '2020-01-01'
 END_DATE = '2024-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 20, 30, 90]
 
@@ -367,6 +368,10 @@ if __name__ == '__main__':
                 forward_return_periods=FORWARD_RETURN_PERIODS,
                 factor_names=FACTOR_NAMES)
 
+            if roller is None:
+                logging.error("❌ 滚动计算器创建失败。")
+                sys.exit(1)
+
             logging.info("⚙️ 步骤 3c: 准备滚动数据...")
             # 合并因子值和未来收益 (用于计算 IC/IR 等)
             all_data_merged = pd.merge(combined_factors_df.reset_index(),
@@ -380,7 +385,10 @@ if __name__ == '__main__':
             composite_factor_series.name = 'factor_value'
             final_factor_name = f"Composite_{STRATEGY_NAME}_Rolling"
 
-        combined_factors_df = composite_factor_series.to_frame()
+        if composite_factor_series is not None:
+            combined_factors_df = composite_factor_series.to_frame()
+        else:
+            combined_factors_df = pd.DataFrame()
 
     # =====================
     # 4. 生成报告
@@ -407,7 +415,8 @@ if __name__ == '__main__':
                 factor_name=final_factor_name,
                 factor_data=final_report_df,
                 forward_return_periods=FORWARD_RETURN_PERIODS,
-                benchmark_data=benchmark_df)
+                benchmark_data=benchmark_df
+                if benchmark_df is not None else pd.DataFrame())
 
             std_name = STANDARDIZER.__class__.__name__
 

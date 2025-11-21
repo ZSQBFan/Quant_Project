@@ -10,6 +10,7 @@ from strategies.combiners import (EqualWeightCombiner, FixedWeightCombiner,
                                   DynamicSignificanceCombiner,
                                   DynamicWeightCombiner, AICombiner)
 from strategies.ai_trainers import LightGBMTrainer
+from strategies.rolling_calculators import AdversarialLLMCombiner
 
 # ==============================================================================
 #                 --- 在这里定义你的所有策略配置 ---
@@ -37,16 +38,16 @@ FIXED_WEIGHT_STRATEGY = StrategyConfig(combiner_class=FixedWeightCombiner,
                                                'Momentum': 0.7
                                            }
                                        },
-                                       rolling_config=None)
+                                       rolling_config={})
 
 EQUAL_WEIGHT_STRATEGY = StrategyConfig(combiner_class=EqualWeightCombiner,
                                        combiner_kwargs={},
-                                       rolling_config=None)
+                                       rolling_config={})
 
 DYNAMIC_SIG_STRATEGY = StrategyConfig(
     combiner_class=DynamicSignificanceCombiner,
     combiner_kwargs={},
-    rolling_config=None)
+    rolling_config={})
 
 ROLLING_REGRESSION_STRATEGY = StrategyConfig(
     combiner_class=DynamicWeightCombiner,
@@ -88,6 +89,22 @@ LIGHTGBM_STRATEGY = StrategyConfig(
                         })
     })
 
+ADVERSARIAL_LLM_STRATEGY = StrategyConfig(
+    combiner_class=DynamicWeightCombiner,
+    combiner_kwargs={'factor_weights': {}},
+    rolling_config={
+        'CALCULATOR_TYPE': 'AdversarialLLM',
+        'ROLLING_WINDOW_DAYS': 90,
+        'REBALANCE_FREQUENCY': 'MS',
+        'API_URL':
+        'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
+        'API_KEY': 'sk-***',  # 请替换为实际的API密钥
+        'MAX_ROUNDS': 2,
+        'INCLUDE_FACTOR_VALUES': True,
+        'INCLUDE_CONVERSATION_HISTORY': True,
+        'ALLOW_NEGATIVE_WEIGHTS': True
+    })
+
 # ==============================================================================
 #                 --- 在这里注册您的策略 ---
 # ==============================================================================
@@ -98,4 +115,5 @@ STRATEGY_REGISTRY = {
     "DynamicSignificance": DYNAMIC_SIG_STRATEGY,
     "RollingRegression": ROLLING_REGRESSION_STRATEGY,
     "LightGBM_Periodic": LIGHTGBM_STRATEGY,
+    "AdversarialLLM": ADVERSARIAL_LLM_STRATEGY,
 }

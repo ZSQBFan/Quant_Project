@@ -27,7 +27,7 @@ class StrategyConfig:
 
     def create_rolling_calculator(
             self, forward_return_periods: List[int],
-            factor_names: List[str]) -> RollingCalculatorBase:
+            factor_names: List[str]) -> RollingCalculatorBase | None:
         """
         【【【核心工厂方法】】】
         
@@ -49,7 +49,7 @@ class StrategyConfig:
         # 为了让代码能运行，我们将在这里进行实例化，但在一个更严格的框架中，
         # 可能会使用依赖注入或插件系统。
 
-        from strategies.rolling_calculators import RollingICIRCalculator, RollingRegressionCalculator, RollingAITrainer
+        from strategies.rolling_calculators import RollingICIRCalculator, RollingRegressionCalculator, RollingAITrainer, AdversarialLLMCombiner
 
         if calc_type == 'ICIR':
             config = self.rolling_config.get('FACTOR_WEIGHTING_CONFIG', {})
@@ -78,6 +78,25 @@ class StrategyConfig:
                                     factor_names=factor_names,
                                     rolling_window_days=rolling_window,
                                     rebalance_frequency=rebalance_freq)
+
+        elif calc_type == 'AdversarialLLM':
+            api_url = self.rolling_config.get(
+                'API_URL', 'https://api.openai.com/v1/chat/completions')
+            api_key = self.rolling_config.get('API_KEY', None)
+            max_rounds = self.rolling_config.get('MAX_ROUNDS', 2)
+            include_factor_values = self.rolling_config.get(
+                'INCLUDE_FACTOR_VALUES', False)
+            include_conversation_history = self.rolling_config.get(
+                'INCLUDE_CONVERSATION_HISTORY', False)
+            return AdversarialLLMCombiner(
+                api_url=api_url,
+                api_key=api_key,
+                max_rounds=max_rounds,
+                include_factor_values=include_factor_values,
+                include_conversation_history=include_conversation_history,
+                factor_names=factor_names,
+                rolling_window_days=rolling_window,
+                rebalance_frequency=rebalance_freq)
 
         else:
             raise ValueError(f"未知的滚动计算器类型: '{calc_type}'")
