@@ -20,8 +20,8 @@ from strategy_configs import STRATEGY_REGISTRY
 # STRATEGY_NAME = "FixedWeights"
 # STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
-# STRATEGY_NAME = "LightGBM_Periodic"
-STRATEGY_NAME = "AdversarialLLM"
+STRATEGY_NAME = "LightGBM_Periodic"
+# STRATEGY_NAME = "AdversarialLLM"
 
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
     raise ValueError(f"策略 '{STRATEGY_NAME}' 未在 strategy_configs.py 中注册。")
@@ -74,8 +74,8 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer  #跨度Z分数标准化
 SKIP_DATA_PREPARATION = True
 
 # --- 2a. 回测时间与收益周期 ---
-START_DATE = '2020-01-01'
-END_DATE = '2024-12-31'
+START_DATE = '2023-01-01'
+END_DATE = '2025-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 20, 30, 90]
 
 # --- 2b. 基准与股票池 ---
