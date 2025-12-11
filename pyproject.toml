@@ -1,0 +1,24 @@
+[project]
+name = "quant-project-3-12-macmini"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "akshare>=1.10.0",
+    "backtrader>=1.9.78",
+    "joblib>=1.2.0",
+    "lightgbm>=3.3.0",
+    "matplotlib>=3.5.0",
+    "narwhals>=1.0.0",
+    "numpy>=1.21.0",
+    "packaging>=21.0",
+    "pandas>=1.5.0",
+    "pandas-ta>=0.3.14",
+    "plotly>=5.0.0",
+    "scikit-learn>=1.0.0",
+    "scipy>=1.7.0",
+    "threadpoolctl>=3.0.0",
+    "tqdm>=4.64.0",
+    "tushare>=1.2.89",
+]
