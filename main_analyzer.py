@@ -83,7 +83,7 @@ BENCHMARK = '600519'  # 茅台
 from universe_config import UNIVERSE
 
 # 因子计算进程数
-FACTOR_CALC_PROCESSES = 8
+FACTOR_CALC_PROCESSES = 16
 
 # --- 2c. 路径配置 ---
 LOG_DIR = "logs"
