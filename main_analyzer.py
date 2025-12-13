@@ -18,9 +18,9 @@ from strategy_configs import STRATEGY_REGISTRY
 # STRATEGY_NAME = "RollingICIR"
 # STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
-# STRATEGY_NAME = "EqualWeights"
+STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
-STRATEGY_NAME = "LightGBM_Periodic"
+# STRATEGY_NAME = "LightGBM_Periodic"
 # STRATEGY_NAME = "AdversarialLLM"
 
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
@@ -75,7 +75,7 @@ SKIP_DATA_PREPARATION = True
 
 # --- 2a. 回测时间与收益周期 ---
 START_DATE = '2023-01-01'
-END_DATE = '2025-12-31'
+END_DATE = '2023-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 20, 30, 90]
 
 # --- 2b. 基准与股票池 ---
@@ -325,6 +325,22 @@ if __name__ == '__main__':
         logging.info("ℹ️ 单因子模式。")
         final_factor_name = FACTOR_NAMES[0]
         combined_factors_df = all_factors_dfs[final_factor_name].to_frame()
+        
+        # 【修复】确保索引结构正确：应该是 ['date', 'asset'] 而不是 ['date', 'date', 'asset']
+        if combined_factors_df.index.nlevels > 2:
+            logging.warning(f"⚠️ 检测到异常索引结构: {combined_factors_df.index.names}，正在修复...")
+            # 重置所有索引，然后重新设置正确的多级索引
+            combined_factors_df = combined_factors_df.reset_index()
+            # 删除重复的 date 列（保留第一个）
+            if 'date' in combined_factors_df.columns and combined_factors_df.columns.tolist().count('date') > 1:
+                date_cols = [i for i, col in enumerate(combined_factors_df.columns) if col == 'date']
+                # 保留第一个 date 列，删除其他的
+                cols_to_drop = [combined_factors_df.columns[i] for i in date_cols[1:]]
+                combined_factors_df = combined_factors_df.drop(columns=cols_to_drop)
+            
+            # 重新设置正确的多级索引
+            combined_factors_df = combined_factors_df.set_index(['date', 'asset'])
+        
         # 单因子通常不需要标准化用于合成，但如果需要统一量纲可以打开下面这行
         # combined_factors_df = combined_factors_df.groupby(level='date').apply(lambda x: STANDARDIZER.standardize(x))
     else:
@@ -346,6 +362,16 @@ if __name__ == '__main__':
         combined_factors_df = combined_factors_df.groupby(
             level='date',
             group_keys=False).apply(lambda x: STANDARDIZER.standardize(x))
+        
+        # 【修复】标准化后检查并修复可能的重复索引问题
+        if combined_factors_df.index.nlevels > 2:
+            logging.warning(f"⚠️ 标准化后检测到异常索引: {combined_factors_df.index.names}")
+            # 直接删除重复的索引层级（保留前两个：date, asset）
+            while combined_factors_df.index.nlevels > 2:
+                combined_factors_df.index = combined_factors_df.index.droplevel(-1)
+            combined_factors_df.index.names = ['date', 'asset']
+            logging.info(f"✅ 标准化后索引已修复: {combined_factors_df.index.names}")
+            
         logging.info("  > ✅ 所有因子已完成标准化处理。")
 
         # 核心策略逻辑
@@ -364,6 +390,19 @@ if __name__ == '__main__':
         else:
             # B. 动态滚动策略
             logging.info(f"ℹ️ 模式: 动态滚动 (每日权重计算)")
+            
+            # 【关键修复】确保factor_names与合并数据的列名完全匹配
+            logging.debug(f"🔍 所有因子名称: {FACTOR_NAMES}")
+            logging.debug(f"🔍 合并数据列: {list(combined_factors_df.columns)}")
+            logging.debug(f"🔍 收益率数据列: {list(future_returns_df.columns)}")
+            
+            # 验证因子列存在性
+            missing_factor_cols = [f for f in FACTOR_NAMES if f not in combined_factors_df.columns]
+            if missing_factor_cols:
+                logging.error(f"❌ 错误: 以下因子在合并数据中缺失: {missing_factor_cols}")
+                logging.error(f"❌ 可用列包括: {list(combined_factors_df.columns)}")
+                raise ValueError(f"因子列缺失: {missing_factor_cols}")
+            
             roller = STRATEGY_CONFIG.create_rolling_calculator(
                 forward_return_periods=FORWARD_RETURN_PERIODS,
                 factor_names=FACTOR_NAMES)
@@ -373,12 +412,48 @@ if __name__ == '__main__':
                 sys.exit(1)
 
             logging.info("⚙️ 步骤 3c: 准备滚动数据...")
+            
+            # 【调试】检查合并前的数据
+            logging.debug(f"🔍 [滚动数据] combined_factors_df 形状: {combined_factors_df.shape}")
+            logging.debug(f"🔍 [滚动数据] combined_factors_df 索引: {combined_factors_df.index.names}")
+            logging.debug(f"🔍 [滚动数据] combined_factors_df 列: {list(combined_factors_df.columns)}")
+            logging.debug(f"🔍 [滚动数据] combined_factors_df 数据类型:\n{combined_factors_df.dtypes}")
+            logging.debug(f"🔍 [滚动数据] combined_factors_df 样例:\n{combined_factors_df.head()}")
+            logging.debug(f"🔍 [滚动数据] combined_factors_df 统计:\n{combined_factors_df.describe()}")
+            
+            logging.debug(f"🔍 [滚动数据] future_returns_df 形状: {future_returns_df.shape}")
+            logging.debug(f"🔍 [滚动数据] future_returns_df 索引: {future_returns_df.index.names}")
+            logging.debug(f"🔍 [滚动数据] future_returns_df 列: {list(future_returns_df.columns)}")
+            logging.debug(f"🔍 [滚动数据] future_returns_df 样例:\n{future_returns_df.head()}")
+            
             # 合并因子值和未来收益 (用于计算 IC/IR 等)
-            all_data_merged = pd.merge(combined_factors_df.reset_index(),
-                                       future_returns_df.reset_index(),
+            combined_reset = combined_factors_df.reset_index()
+            returns_reset = future_returns_df.reset_index()
+            
+            logging.debug(f"🔍 [滚动数据] 重置索引后 - combined: {combined_reset.shape}, returns: {returns_reset.shape}")
+            logging.debug(f"🔍 [滚动数据] 合并键: date, asset")
+            
+            all_data_merged = pd.merge(combined_reset,
+                                       returns_reset,
                                        on=['date', 'asset'],
-                                       how='inner').set_index(
-                                           ['date', 'asset']).sort_index()
+                                       how='inner')
+            
+            logging.debug(f"🔍 [滚动数据] 合并后最终数据形状: {all_data_merged.shape}")
+            
+            if all_data_merged.empty:
+                logging.error("❌ [滚动数据] 合并后数据为空！")
+                logging.error(f"❌ [滚动数据] combined_reset 列: {list(combined_reset.columns)}")
+                logging.error(f"❌ [滚动数据] returns_reset 列: {list(returns_reset.columns)}")
+                # 尝试外连接查看问题
+                all_data_merged_debug = pd.merge(combined_reset, returns_reset, on=['date', 'asset'], how='outer', indicator=True)
+                logging.error(f"❌ [滚动数据] 外连接结果:\n{all_data_merged_debug['_merge'].value_counts()}")
+                raise ValueError("滚动数据合并失败")
+                
+            all_data_merged = all_data_merged.set_index(['date', 'asset']).sort_index()
+            
+            logging.debug(f"🔍 [滚动数据] 最终索引: {all_data_merged.index.names}")
+            logging.debug(f"🔍 [滚动数据] 最终列: {list(all_data_merged.columns)}")
+            logging.debug(f"🔍 [滚动数据] 因子列统计:\n{all_data_merged[FACTOR_NAMES].describe()}")
 
             composite_factor_series = roller.calculate_composite_factor(
                 all_data_merged)
@@ -387,6 +462,14 @@ if __name__ == '__main__':
 
         if composite_factor_series is not None:
             combined_factors_df = composite_factor_series.to_frame()
+            # 【简化修复】合成后也检查索引
+            if combined_factors_df.index.nlevels > 2:
+                logging.warning(f"⚠️ 合成因子索引异常: {combined_factors_df.index.names}，正在修复...")
+                # 保留最后2个层级（通常是 date, asset）
+                while combined_factors_df.index.nlevels > 2:
+                    combined_factors_df.index = combined_factors_df.index.droplevel(0)
+                combined_factors_df.index.names = ['date', 'asset']
+                logging.info(f"✅ 合成后索引已修复: {combined_factors_df.index.names}")
         else:
             combined_factors_df = pd.DataFrame()
 
@@ -394,11 +477,27 @@ if __name__ == '__main__':
     # 4. 生成报告
     # =====================
     if not combined_factors_df.empty:
+        # 【调试日志】在合并前检查数据结构
+        logging.debug(f"\n🔍 [调试] combined_factors_df 索引: {combined_factors_df.index.names}")
+        logging.debug(f"🔍 [调试] combined_factors_df 列: {list(combined_factors_df.columns)}")
+        logging.debug(f"🔍 [调试] combined_factors_df 形状: {combined_factors_df.shape}")
+        logging.debug(f"🔍 [调试] combined_factors_df head:\n{combined_factors_df.head()}")
+        
+        logging.debug(f"\n🔍 [调试] future_returns_df 索引: {future_returns_df.index.names}")
+        logging.debug(f"🔍 [调试] future_returns_df 列: {list(future_returns_df.columns)}")
+        logging.debug(f"🔍 [调试] future_returns_df 形状: {future_returns_df.shape}")
+        
         # 合并收益率用于最终报告
-        final_factor_data_df = pd.merge(combined_factors_df.reset_index(),
-                                        future_returns_df.reset_index(),
-                                        on=['date', 'asset'],
-                                        how='inner')
+        try:
+            final_factor_data_df = pd.merge(combined_factors_df.reset_index(),
+                                            future_returns_df.reset_index(),
+                                            on=['date', 'asset'],
+                                            how='inner')
+        except Exception as e:
+            logging.error(f"❌ 合并数据时出错: {e}")
+            logging.error(f"❌ combined_factors_df 索引层级: {combined_factors_df.index.nlevels}")
+            logging.error(f"❌ future_returns_df 索引层级: {future_returns_df.index.nlevels}")
+            raise
         final_factor_data_df.rename(
             columns={'factor_value': final_factor_name}, inplace=True)
         final_factor_data_df.set_index('date', inplace=True)

@@ -38,7 +38,7 @@ class StrategyConfig:
 
         calc_type = self.rolling_config.get('CALCULATOR_TYPE', 'ICIR')
         rolling_window = self.rolling_config.get('ROLLING_WINDOW_DAYS')
-        rebalance_freq = self.rolling_config.get('REBALANCE_FREQUENCY', 'MS')
+        weight_update_freq = self.rolling_config.get('WEIGHT_UPDATE_FREQUENCY', 'MS')
 
         if rolling_window is None:
             raise ValueError(
@@ -58,7 +58,7 @@ class StrategyConfig:
                 forward_return_periods=forward_return_periods,
                 factor_names=factor_names,
                 rolling_window_days=rolling_window,
-                rebalance_frequency=rebalance_freq)
+                weight_update_frequency=weight_update_freq)
 
         elif calc_type == 'Regression':
             target_period = self.rolling_config.get('TARGET_RETURN_PERIOD')
@@ -70,14 +70,14 @@ class StrategyConfig:
                 target_return_period=target_period,
                 factor_names=factor_names,
                 rolling_window_days=rolling_window,
-                rebalance_frequency=rebalance_freq)
+                weight_update_frequency=weight_update_freq)
 
         elif calc_type == 'AI_Trainer':
             trainer = self.rolling_config.get('TRAINING_CALCULATOR')
             return RollingAITrainer(training_calculator=trainer,
                                     factor_names=factor_names,
                                     rolling_window_days=rolling_window,
-                                    rebalance_frequency=rebalance_freq)
+                                    weight_update_frequency=weight_update_freq)
 
         elif calc_type == 'AdversarialLLM':
             api_url = self.rolling_config.get(
@@ -96,7 +96,7 @@ class StrategyConfig:
                 include_conversation_history=include_conversation_history,
                 factor_names=factor_names,
                 rolling_window_days=rolling_window,
-                rebalance_frequency=rebalance_freq)
+                weight_update_frequency=weight_update_freq)
 
         else:
             raise ValueError(f"未知的滚动计算器类型: '{calc_type}'")

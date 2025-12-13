@@ -26,15 +26,74 @@ class RollingICIRCalculator(RollingCalculatorBase):
     def _calculate_payload_for_day(self,
                                    hist_df: pd.DataFrame) -> Dict[str, float]:
         w = {}
+        
+        # 【关键调试】打印所有可用的列名
+        available_cols = hist_df.columns.tolist()
+        logging.debug(f"🔍 [RollingICIR] 历史数据窗口可用列: {available_cols}")
+        logging.debug(f"🔍 [RollingICIR] 期望的因子名称: {self.factor_names}")
+        
         for fname in self.factor_names:
             m_str = self.config.get(fname, f'ir_{self.periods[0]}d')
             m_key, p = self._parse_metric_str(m_str)
-            ic_data = hist_df[[fname, f'forward_return_{p}d'
+            
+            # 【调试】检查输入数据
+            logging.debug(f"🔍 [RollingICIR] 因子 {fname}: 计算 {p}d IC")
+            logging.debug(f"🔍 [RollingICIR] 历史数据形状: {hist_df.shape}")
+            
+            # 【关键修复】更加严格的列存在性检查
+            if fname not in hist_df.columns:
+                # 查找匹配相似度的列
+                similar_cols = [col for col in available_cols if fname.lower() in col.lower() or col.lower() in fname.lower()]
+                logging.error(f"❌ [RollingICIR] 因子 {fname}: 在历史数据中未找到！")
+                logging.error(f"❌ [RollingICIR] 可用列包括: {available_cols}")
+                if similar_cols:
+                    logging.warning(f"  > ⚠️ 发现相似列: {similar_cols}，检查是否命名不一致")
+                w[fname] = 0.0
+                continue
+                
+            return_col_p = f'forward_return_{p}d'
+            if return_col_p not in hist_df.columns:
+                logging.error(f"❌ [RollingICIR] 收益率列 {return_col_p}: 在历史数据中未找到！")
+                available_return_cols = [col for col in available_cols if col.startswith('forward_return_')]
+                logging.error(f"❌ [RollingICIR] 可用的收益率列: {available_return_cols}")
+                w[fname] = 0.0
+                continue
+            
+            # 验证数据
+            factor_data = hist_df[fname]
+            return_data = hist_df[return_col_p]
+            logging.debug(f"🔍 [RollingICIR] 因子 {fname}: 非空值数={factor_data.count()}/{len(factor_data)}, 均值={factor_data.mean():.4f}")
+            logging.debug(f"🔍 [RollingICIR] 收益率 {return_col_p}: 非空值数={return_data.count()}/{len(return_data)}, 均值={return_data.mean():.4f}")
+            
+            # 如果大多数值为0或NA，提示警告
+            if factor_data.count() < len(factor_data) * 0.1:
+                logging.warning(f"  > ⚠️ [RollingICIR] 因子 {fname}: 超过90%的值为空或NA！")
+                
+            ic_data = hist_df[[fname, return_col_p
                                ]].rename(columns={fname: 'factor_value'})
+            logging.debug(f"🔍 [RollingICIR] IC计算数据形状: {ic_data.shape}")
+            logging.debug(f"🔍 [RollingICIR] 数据样例:\n{ic_data.head()}")
+            
             ic_s = metrics.calculate_rank_ic_series(ic_data.dropna(), p)
+            logging.debug(f"🔍 [RollingICIR] 计算得到的IC序列: {len(ic_s)} 个值")
+            if len(ic_s) > 0:
+                logging.debug(f"🔍 [RollingICIR] IC统计: {metrics.analyze_ic_statistics(ic_s)}")
+            
             w[fname] = metrics.analyze_ic_statistics(ic_s).get(m_key, 0.0)
+            logging.debug(f"🔍 [RollingICIR] 因子 {fname} 权重: {w[fname]:.4f}")
+            
         tot_s = sum(abs(v) for v in w.values())
-        return {f: v / tot_s if tot_s else 0.0 for f, v in w.items()}
+        final_weights = {f: v / tot_s if tot_s else 0.0 for f, v in w.items()}
+        logging.debug(f"🔍 [RollingICIR] 最终权重: {final_weights}")
+        
+        # 如果所有权重都是0，记录重大警告
+        if all(v == 0.0 for v in final_weights.values()):
+            logging.warning(f"⚠️ [RollingICIR] 所有因子权重都为0！使用等权回退")
+            # 临时等权
+            equal_weight = 1.0 / len(self.factor_names) if self.factor_names else 1.0
+            final_weights = {f: equal_weight for f in self.factor_names}
+            
+        return final_weights
 
     def _combine_factors_for_day(self, payload: Dict[str, float],
                                  daily_df: pd.DataFrame) -> pd.Series:
@@ -100,6 +159,8 @@ class AdversarialLLMCombiner(RollingCalculatorBase):
     - Agent B (保守型风险经理): 关注风险控制和回撤管理
     
     通过多轮辩论达到最优权重分配，支持正负权重以表达对因子的不同观点。
+    
+    注意：这里的"调仓"实际上是指因子权重的更新频率，而非投资组合的实际调仓。
     """
 
     def __init__(self,

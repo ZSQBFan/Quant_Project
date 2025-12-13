@@ -405,8 +405,9 @@ def calculate_industry_neutral_sales_growth(
     logging.info(f"      > (1/2) 正在计算基础 {factor_name} (YoY, lag=252)...")
 
     # pct_change(252) 计算 (Today - Today-252) / Today-252
+    # 添加 fill_method=None 以避免 FutureWarning
     raw_growth = all_data_df.groupby(
-        level='asset')['total_revenue'].pct_change(periods=252)
+        level='asset')['total_revenue'].pct_change(periods=252, fill_method=None)
 
     # 2. 极值处理
     # 营收增长率可能因基数极小出现极端值，将其视为无效

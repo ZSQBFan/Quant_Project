@@ -21,7 +21,7 @@ ROLLING_ICIR_STRATEGY = StrategyConfig(combiner_class=DynamicWeightCombiner,
                                        rolling_config={
                                            'CALCULATOR_TYPE': 'ICIR',
                                            'ROLLING_WINDOW_DAYS': 90,
-                                           'REBALANCE_FREQUENCY': 'D',
+                                           'WEIGHT_UPDATE_FREQUENCY': 'D',
                                            'FACTOR_WEIGHTING_CONFIG': {
                                                'Momentum': 'ic_mean_30d',
                                                'Reversal20D': 'ir_30d',
@@ -38,16 +38,16 @@ FIXED_WEIGHT_STRATEGY = StrategyConfig(combiner_class=FixedWeightCombiner,
                                                'Momentum': 0.7
                                            }
                                        },
-                                       rolling_config={})
+                                       rolling_config=None)
 
 EQUAL_WEIGHT_STRATEGY = StrategyConfig(combiner_class=EqualWeightCombiner,
                                        combiner_kwargs={},
-                                       rolling_config={})
+                                       rolling_config=None)
 
 DYNAMIC_SIG_STRATEGY = StrategyConfig(
     combiner_class=DynamicSignificanceCombiner,
     combiner_kwargs={},
-    rolling_config={})
+    rolling_config=None)
 
 ROLLING_REGRESSION_STRATEGY = StrategyConfig(
     combiner_class=DynamicWeightCombiner,
@@ -55,7 +55,7 @@ ROLLING_REGRESSION_STRATEGY = StrategyConfig(
     rolling_config={
         'CALCULATOR_TYPE': 'Regression',
         'ROLLING_WINDOW_DAYS': 90,
-        'REBALANCE_FREQUENCY': 'D',
+        'WEIGHT_UPDATE_FREQUENCY': 'D',
         'TARGET_RETURN_PERIOD': 30
     })
 
@@ -67,7 +67,7 @@ LIGHTGBM_STRATEGY = StrategyConfig(
         'AI_Trainer',
         'ROLLING_WINDOW_DAYS':
         250,
-        'REBALANCE_FREQUENCY':
+        'WEIGHT_UPDATE_FREQUENCY':
         'MS',
         'TRAINING_CALCULATOR':
         LightGBMTrainer(target_return_period=30,
@@ -95,7 +95,7 @@ ADVERSARIAL_LLM_STRATEGY = StrategyConfig(
     rolling_config={
         'CALCULATOR_TYPE': 'AdversarialLLM',
         'ROLLING_WINDOW_DAYS': 90,
-        'REBALANCE_FREQUENCY': 'MS',
+        'WEIGHT_UPDATE_FREQUENCY': 'MS',
         'API_URL':
         'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
         'API_KEY': 'sk-***',  # 请替换为实际的API密钥
