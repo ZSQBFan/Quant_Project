@@ -77,6 +77,7 @@ LIGHTGBM_STRATEGY = StrategyConfig(
                             'n_estimators': 300,
                             'learning_rate': 0.03,
                             'num_leaves': 31,
+                            'num_threads': 8,
                             'max_depth': 6,
                             'min_child_samples': 50,
                             'subsample': 0.8,

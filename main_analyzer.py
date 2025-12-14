@@ -18,9 +18,9 @@ from strategy_configs import STRATEGY_REGISTRY
 # STRATEGY_NAME = "RollingICIR"
 # STRATEGY_NAME = "RollingRegression"
 # STRATEGY_NAME = "FixedWeights"
-# STRATEGY_NAME = "EqualWeights"
+STRATEGY_NAME = "EqualWeights"
 # STRATEGY_NAME = "DynamicSignificance"
-STRATEGY_NAME = "LightGBM_Periodic"
+# STRATEGY_NAME = "LightGBM_Periodic"
 # STRATEGY_NAME = "AdversarialLLM"
 
 if STRATEGY_NAME not in STRATEGY_REGISTRY:
