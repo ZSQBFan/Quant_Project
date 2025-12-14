@@ -25,14 +25,62 @@ class RollingICIRCalculator(RollingCalculatorBase):
 
     def _calculate_payload_for_day(self,
                                    hist_df: pd.DataFrame) -> Dict[str, float]:
-        w = {}
+        # 添加数据质量检查，参考RollingRegressionCalculator的做法
+        # 检查是否有足够的数据进行IC计算
+        if hist_df.empty:
+            logging.warning(f"  > ⚠️ [RollingICIRCalculator] 历史数据窗口为空，返回等权权重")
+            return {f: 1.0/len(self.factor_names) for f in self.factor_names}
+        
+        # 检查每个因子的数据质量
+        valid_factors = []
         for fname in self.factor_names:
             m_str = self.config.get(fname, f'ir_{self.periods[0]}d')
             m_key, p = self._parse_metric_str(m_str)
-            ic_data = hist_df[[fname, f'forward_return_{p}d'
-                               ]].rename(columns={fname: 'factor_value'})
-            ic_s = metrics.calculate_rank_ic_series(ic_data.dropna(), p)
-            w[fname] = metrics.analyze_ic_statistics(ic_s).get(m_key, 0.0)
+            return_col = f'forward_return_{p}d'
+            
+            if return_col not in hist_df.columns:
+                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 缺少 {return_col} 列，跳过因子 {fname}")
+                continue
+                
+            factor_data = hist_df[[fname, return_col]].dropna()
+            if len(factor_data) < 10:  # 至少需要10个数据点进行IC计算
+                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 因子 {fname} 数据点不足({len(factor_data)})，跳过")
+                continue
+                
+            # 检查因子值是否为常量
+            if factor_data[fname].nunique() <= 1:
+                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 因子 {fname} 值为常量，跳过")
+                continue
+                
+            # 检查收益率是否为常量
+            if factor_data[return_col].nunique() <= 1:
+                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 收益率 {return_col} 为常量，跳过因子 {fname}")
+                continue
+                
+            valid_factors.append((fname, m_key, p))
+        
+        # 如果没有有效因子，返回等权权重
+        if not valid_factors:
+            logging.warning(f"  > ⚠️ [RollingICIRCalculator] 没有有效因子，返回等权权重")
+            return {f: 1.0/len(self.factor_names) for f in self.factor_names}
+        
+        # 计算有效因子的权重
+        w = {}
+        for fname, m_key, p in valid_factors:
+            return_col = f'forward_return_{p}d'
+            ic_data = hist_df[[fname, return_col]].rename(columns={fname: 'factor_value'})
+            try:
+                ic_s = metrics.calculate_rank_ic_series(ic_data.dropna(), p)
+                w[fname] = metrics.analyze_ic_statistics(ic_s).get(m_key, 0.0)
+            except Exception as e:
+                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 计算因子 {fname} 的IC时出错: {e}，权重设为0")
+                w[fname] = 0.0
+        
+        # 对于无效因子，权重设为0
+        for fname in self.factor_names:
+            if fname not in w:
+                w[fname] = 0.0
+                
         tot_s = sum(abs(v) for v in w.values())
         return {f: v / tot_s if tot_s else 0.0 for f, v in w.items()}
 

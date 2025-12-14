@@ -44,7 +44,7 @@ FACTORS_TO_RUN = [
     "IndNeu_EP",
     # "IndNeu_BP"
     # "IndNeu_ROE",
-    "IndNeu_SalesGrowth",  #似乎有点问题？
+    # "IndNeu_SalesGrowth",  #似乎有点问题？
     "IndNeu_CFOP",
     "IndNeu_GPM",
     # "IndNeu_AssetTurnover",
@@ -53,7 +53,8 @@ FACTORS_TO_RUN = [
 
 # --- 1d. 截面数据配置 (Cross-Sectional Data) ---
 #   【全局开关】: 是否在任何情况下都强制加载行业数据？
-LOAD_INDUSTRY_DATA = False
+LOAD_INDUSTRY_DATA = True
+# LOAD_INDUSTRY_DATA = False
 
 # --- 1e. 标准化器 (Standardizer) ---
 from strategies.standardizers import (CrossSectionalZScoreStandardizer,
@@ -329,6 +330,27 @@ if __name__ == '__main__':
         # combined_factors_df = combined_factors_df.groupby(level='date').apply(lambda x: STANDARDIZER.standardize(x))
     else:
         logging.info("⚙️ 步骤 3a: 合并因子数据...")
+        
+        # 【【【调试日志】】】: 检查索引唯一性
+        for factor_name, factor_series in all_factors_dfs.items():
+            if factor_series.index.duplicated().any():
+                dup_count = factor_series.index.duplicated().sum()
+                logging.warning(f"⚠️ 因子 {factor_name} 发现 {dup_count} 个重复索引!")
+                dup_indices = factor_series.index[factor_series.index.duplicated()]
+                logging.warning(f"重复索引示例: {dup_indices[:5].tolist()}")
+                
+                # 【【【修复】】】: 去除重复索引，保留最后一个
+                all_factors_dfs[factor_name] = factor_series[~factor_series.index.duplicated(keep='last')]
+                logging.info(f"✅ 因子 {factor_name} 已去除重复索引，剩余行数: {len(all_factors_dfs[factor_name])}")
+        
+        # 检查股票池是否有重复
+        original_universe_size = len(active_universe)
+        unique_universe = list(set(active_universe))
+        if len(unique_universe) != original_universe_size:
+            logging.warning(f"⚠️ 股票池发现重复: 原始{original_universe_size}只，去重后{len(unique_universe)}只")
+            from collections import Counter
+            duplicates = Counter([x for x in active_universe if active_universe.count(x) > 1])
+            logging.warning(f"重复的股票代码: {dict(duplicates)}")
 
         combined_factors_df = pd.concat(all_factors_dfs.values(),
                                         axis=1,
@@ -395,7 +417,53 @@ if __name__ == '__main__':
     # =====================
     if not combined_factors_df.empty:
         # 合并收益率用于最终报告
-        final_factor_data_df = pd.merge(combined_factors_df.reset_index(),
+        # 【【【修复】】】: 彻底处理重复索引问题
+        # 使用最安全的方式：直接创建一个新的数据框
+        if isinstance(combined_factors_df.index, pd.MultiIndex):
+            # 多级索引情况 - 使用级别号而不是名称来避免重复名称问题
+            index_names = combined_factors_df.index.names
+            
+            # 找到 date 和 asset 对应的级别号
+            date_level = None
+            asset_level = None
+            
+            for i, name in enumerate(index_names):
+                if name == 'date' and date_level is None:
+                    date_level = i
+                elif name == 'asset' and asset_level is None:
+                    asset_level = i
+            
+            if date_level is not None and asset_level is not None:
+                index_data = {
+                    'date': combined_factors_df.index.get_level_values(date_level).values,
+                    'asset': combined_factors_df.index.get_level_values(asset_level).values
+                }
+            else:
+                # 如果找不到，使用前两个级别
+                index_data = {
+                    'date': combined_factors_df.index.get_level_values(0).values,
+                    'asset': combined_factors_df.index.get_level_values(1).values
+                }
+        else:
+            # 单级索引情况
+            if combined_factors_df.index.name == 'date':
+                index_data = {
+                    'date': combined_factors_df.index.values,
+                    'asset': combined_factors_df.index.get_level_values('asset').values if hasattr(combined_factors_df.index, 'get_level_values') else range(len(combined_factors_df))
+                }
+            else:
+                # 假设第一列是 date，第二列是 asset
+                cols = combined_factors_df.columns.tolist()
+                index_data = {
+                    'date': combined_factors_df.iloc[:, 0] if len(cols) > 0 else combined_factors_df.index.values,
+                    'asset': combined_factors_df.iloc[:, 1] if len(cols) > 1 else range(len(combined_factors_df))
+                }
+        
+        # 创建新的数据框，包含索引和因子值
+        factor_df_for_merge = pd.DataFrame(index_data)
+        factor_df_for_merge['factor_value'] = combined_factors_df.iloc[:, -1].values  # 最后一列是因子值
+                
+        final_factor_data_df = pd.merge(factor_df_for_merge,
                                         future_returns_df.reset_index(),
                                         on=['date', 'asset'],
                                         how='inner')

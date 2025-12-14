@@ -13,6 +13,10 @@ def _calculate_spearman_for_group(group: pd.DataFrame,
     """计算单个分组的斯皮尔曼秩相关系数。"""
     if len(group['factor_value']) < 2 or len(group[return_col]) < 2:
         return float('nan')
+    
+    # 检查输入是否为常量，避免ConstantInputWarning
+    if group['factor_value'].nunique() <= 1 or group[return_col].nunique() <= 1:
+        return float('nan')
 
     corr, _ = spearmanr(group['factor_value'], group[return_col])
     return float(corr) if pd.notna(corr) else float('nan')

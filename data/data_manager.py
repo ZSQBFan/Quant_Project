@@ -380,9 +380,43 @@ class DataProviderManager:
             return pd.DataFrame()
 
         logging.info("⚙️ 正在堆叠数据框...")
+        
+        # 【【【调试日志】】】: 检查合并前的索引情况
+        total_rows = sum(len(df) for df in all_dfs)
+        logging.info(f"📊 合并前总行数: {total_rows}, 数据框数量: {len(all_dfs)}")
+        
+        # 检查是否有重复的asset
+        asset_counts = {}
+        for df in all_dfs:
+            asset = df['asset'].iloc[0] if not df.empty else None
+            if asset:
+                asset_counts[asset] = asset_counts.get(asset, 0) + 1
+        
+        duplicates = {k: v for k, v in asset_counts.items() if v > 1}
+        if duplicates:
+            logging.warning(f"⚠️ 发现重复的asset: {duplicates}")
+        
         final_df = pd.concat(all_dfs)
+        
+        # 检查合并后的索引唯一性
+        if final_df.index.duplicated().any():
+            dup_count = final_df.index.duplicated().sum()
+            logging.warning(f"⚠️ 合并后发现 {dup_count} 个重复的date索引!")
+        
         final_df.reset_index(inplace=True)
         final_df.set_index(['date', 'asset'], inplace=True)
+        
+        # 检查MultiIndex的唯一性并去重
+        if final_df.index.duplicated().any():
+            dup_count = final_df.index.duplicated().sum()
+            logging.warning(f"⚠️ MultiIndex中发现 {dup_count} 个重复的(date, asset)索引!")
+            dup_indices = final_df.index[final_df.index.duplicated()]
+            logging.warning(f"重复索引示例: {dup_indices[:5].tolist()}")
+            
+            # 【【【修复】】】: 去除重复索引，保留最后一个
+            final_df = final_df[~final_df.index.duplicated(keep='last')]
+            logging.info(f"✅ 已去除重复索引，剩余行数: {len(final_df)}")
+        
         final_df.sort_index(inplace=True)
 
         return final_df

@@ -45,3 +45,6 @@ Desktop.ini
 # 配置文件
 config.ini
 settings.ini
+
+#MCP
+new-mcp-server.yaml

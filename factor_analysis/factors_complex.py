@@ -69,6 +69,18 @@ def _neutralize_by_industry(base_factor_series: pd.Series,
 
     result_series = merged_data.set_index(['date', 'asset'])[factor_name]
     result_series.name = factor_name
+    
+    # 【【【调试日志】】】: 检查行业中性化后的索引唯一性
+    if result_series.index.duplicated().any():
+        dup_count = result_series.index.duplicated().sum()
+        logging.warning(f"⚠️ [{factor_name}] 行业中性化后发现 {dup_count} 个重复索引!")
+        dup_indices = result_series.index[result_series.index.duplicated()]
+        logging.warning(f"重复索引示例: {dup_indices[:5].tolist()}")
+        
+        # 【【【修复】】】: 去除重复索引，保留最后一个
+        result_series = result_series[~result_series.index.duplicated(keep='last')]
+        logging.info(f"✅ [{factor_name}] 已去除重复索引，剩余行数: {len(result_series)}")
+    
     return result_series.sort_index()
 
 

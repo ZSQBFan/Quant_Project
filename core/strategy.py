@@ -23,7 +23,10 @@ class StrategyConfig:
 
     def is_rolling(self) -> bool:
         """检查此配置是否为【滚动策略】。"""
-        return self.rolling_config is not None
+        # 【【【修复】】】: 正确判断是否为滚动策略
+        # 不仅要检查不是 None，还要检查不是空字典
+        result = self.rolling_config is not None and bool(self.rolling_config)
+        return result
 
     def create_rolling_calculator(
             self, forward_return_periods: List[int],
@@ -34,7 +37,8 @@ class StrategyConfig:
         根据 'CALCULATOR_TYPE' 创建【对应】的滚动计算器实例。
         这个方法是连接策略定义与策略执行的关键桥梁。
         """
-        if not self.is_rolling(): return None
+        if not self.is_rolling():
+            return None
 
         calc_type = self.rolling_config.get('CALCULATOR_TYPE', 'ICIR')
         rolling_window = self.rolling_config.get('ROLLING_WINDOW_DAYS')
