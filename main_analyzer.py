@@ -72,7 +72,9 @@ STANDARDIZER_CLASS = CrossSectionalZScoreStandardizer  #跨度Z分数标准化
 #   【【【重要】】】数据下载与写入开关：
 #   True: 跳过下载，直接使用数据库 (调试因子逻辑时用)
 #   False: 检查并下载缺失数据 (日常更新数据时用)
+
 SKIP_DATA_PREPARATION = True
+# SKIP_DATA_PREPARATION = False
 
 # --- 2a. 回测时间与收益周期 ---
 START_DATE = '2023-01-01'

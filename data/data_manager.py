@@ -91,9 +91,25 @@ class DataProviderManager:
 
         # 初始化交易日历 (优先尝试 Tushare，失败则用 Akshare)
         try:
-            self.calendar_provider = TushareTradingCalendar(self.db_handler)
-        except:
-            self.calendar_provider = AkshareTradingCalendar(self.db_handler)
+            # 从配置中获取 Tushare token，如果没有则使用环境变量或默认值
+            tushare_token = None
+            for cls, kwargs in self.provider_configs:
+                if cls.__name__ == 'TushareDataProvider' or cls.__name__ == 'TushareTradingCalendar':
+                    tushare_token = kwargs.get('token')
+                    break
+            
+            if not tushare_token:
+                # 尝试从环境变量获取
+                import os
+                tushare_token = os.getenv('TUSHARE_TOKEN')
+            
+            if tushare_token:
+                self.calendar_provider = TushareTradingCalendar(token=tushare_token)
+            else:
+                raise ValueError("未找到 Tushare token")
+        except Exception as e:
+            logging.warning(f"⚠️ Tushare 初始化失败: {e}，使用 Akshare 作为备选")
+            self.calendar_provider = AkshareTradingCalendar()
 
         # --- [股票池初始化] ---
         if not symbols and auto_detect_universe:
@@ -815,17 +831,25 @@ class DataProviderManager:
             start, end = ranges[0]
 
             # 优先尝试 SQLite (如果是本地源)，否则尝试 Tushare/Akshare
-            # 这里简化逻辑，直接遍历 providers
+            # 使用 _get_provider 方法确保线程安全
             df = None
-            for name, provider in self._local.providers.items():
-                try:
-                    df = provider.get_daily_price(symbol,
-                                                  start.strftime('%Y%m%d'),
-                                                  end.strftime('%Y%m%d'))
-                    if df is not None and not df.empty:
-                        break
-                except:
-                    continue
+            
+            # 尝试各种数据提供者
+            provider_names = ['SQLiteDataProvider', 'TushareDataProvider', 'AkshareDataProvider']
+            for provider_name in provider_names:
+                provider = self._get_provider(provider_name)
+                if provider:
+                    try:
+                        df = provider.fetch_data(symbol,
+                                                start.strftime('%Y-%m-%d'),
+                                                end.strftime('%Y-%m-%d'))
+                        if df is not None and not df.empty:
+                            # 添加 code 列以便后续处理
+                            df['code'] = symbol
+                            break
+                    except Exception as e:
+                        logging.debug(f"  > 📡 [{provider_name}] 获取 {symbol} 数据失败: {e}")
+                        continue
 
             if df is not None and not df.empty:
                 self.results_queue.put(df)
