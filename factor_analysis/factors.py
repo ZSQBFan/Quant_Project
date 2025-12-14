@@ -204,7 +204,7 @@ def calculate_momentum_factor(df: pd.DataFrame, period: int = 20) -> pd.Series:
     """
     计算动量因子 (Rate of Change)。
     """
-    return df['close'].pct_change(periods=period) * 100
+    return df['close'].pct_change(periods=period, fill_method=None) * 100
 
 
 # --- 其他因子 ---
@@ -226,7 +226,7 @@ def calculate_reversal_20d_factor(df: pd.DataFrame,
     """
     计算20日反转因子 (已修正)。
     """
-    daily_returns = df['close'].pct_change()
+    daily_returns = df['close'].pct_change(fill_method=None)
     daily_returns.replace(0.0, np.nan, inplace=True)
 
     weights = 2.0**-(np.arange(period, 0, -1) / decay)

@@ -27,12 +27,23 @@ def _calculate_forward_returns(df: pd.DataFrame,
     计算单个资产的未来收益率。
     用于 calculate_universe_forward_returns 中的 apply 操作。
     """
+    # 调试：检查输入数据的索引结构
+    if hasattr(df, 'index'):
+        logging.debug(f"    > 🔍 _calculate_forward_returns 输入索引: {df.index.names}")
+        logging.debug(f"    > 🔍 _calculate_forward_returns 输入索引级别数: {df.index.nlevels}")
+    
     # 确保按日期排序
     df = df.sort_index()
     for p in periods:
         # shift(-p) 将未来的价格向上平移，对齐到当前日期
         future_price = df['close'].shift(-p)
         df[f'forward_return_{p}d'] = (future_price / df['close']) - 1
+    
+    # 调试：检查输出数据的索引结构
+    if hasattr(df, 'index'):
+        logging.debug(f"    > 🔍 _calculate_forward_returns 输出索引: {df.index.names}")
+        logging.debug(f"    > 🔍 _calculate_forward_returns 输出索引级别数: {df.index.nlevels}")
+    
     return df
 
 
@@ -340,86 +351,159 @@ class DataProviderManager:
                     f"    > 已缓存 {len(fundamental_cache[table_name])} 只股票的 {table_name} 数据。"
                 )
 
-        # 3. 主循环
-        all_dfs = []
-        logging.info(f"🚀 开始合并数据...")
+        # 3. 使用批量查询优化（新增）
+        logging.info(f"🚀 开始批量合并数据...")
+        return self._batch_merge_data(universe, table_col_map, fundamental_cache, industry_map, load_industry)
 
-        # 只需要查行情的列
-        price_cols = table_col_map.get('stock_daily_prices', [])
-
-        for symbol in tqdm(universe, desc="[Data Load]"):
-            # A. 获取基础行情 (这个必须逐个查，因为全量查行情表内存会爆)
-            df_price = self.get_dataframe(symbol, columns=price_cols)
-
-            if df_price is None or df_price.empty:
-                continue
-
-            # B. 内存合并基本面数据
-            for table_name in fundamental_cache:
-                # 从缓存字典里直接取，不需要 SQL
-                stock_fund_data = fundamental_cache[table_name].get(symbol)
-
-                if stock_fund_data is not None:
-                    # stock_fund_data 已经清洗过，index是 date
-                    # 删除 Stkcd 列防止重名
-                    if 'Stkcd' in stock_fund_data.columns:
-                        stock_fund_data = stock_fund_data.drop(
-                            columns=['Stkcd'])
-
-                    df_price = df_price.join(stock_fund_data, how='left')
-                    df_price = df_price.ffill()  # 填充
-
-            # C. 合并行业
-            if load_industry:
-                df_price['industry'] = industry_map.get(symbol)
-
-            df_price['asset'] = symbol
-            all_dfs.append(df_price)
-
-        if not all_dfs:
+    def _batch_merge_data(self, universe: list, table_col_map: dict, 
+                         fundamental_cache: dict, industry_map: dict, 
+                         load_industry: bool) -> pd.DataFrame:
+        """
+        【批量查询优化版本】一次性查询所有股票数据，大幅提升5000+股票的处理速度
+        """
+        logging.info(f"⚡ [批量查询] 正在为 {len(universe)} 只股票执行批量数据合并...")
+        
+        # 1. 批量查询所有股票的行情数据（核心优化）
+        price_cols = table_col_map.get('stock_daily_prices', ['close'])
+        
+        # 构建股票代码列表（处理SQL注入风险）
+        symbols_str = "','".join([sym.replace("'", "''") for sym in universe])
+        
+        # 构建列查询字符串
+        query_cols = ['code', 'date'] + [col for col in price_cols if col not in ['code', 'date']]
+        cols_str = ", ".join(query_cols)
+        
+        # 批量查询所有股票数据
+        batch_query = f"""
+            SELECT {cols_str} 
+            FROM stock_daily_prices 
+            WHERE code IN ('{symbols_str}') 
+            AND date BETWEEN ? AND ?
+            ORDER BY code, date
+        """
+        
+        logging.info(f"  > 🚀 执行批量行情数据查询 ({len(universe)} 只股票)...")
+        all_price_df = self.db_handler.query_data(
+            batch_query, 
+            (self.start_date, self.end_date)
+        )
+        
+        if all_price_df is None or all_price_df.empty:
+            logging.warning("⚠️ 批量查询返回空数据")
             return pd.DataFrame()
-
-        logging.info("⚙️ 正在堆叠数据框...")
         
-        # 【【【调试日志】】】: 检查合并前的索引情况
-        total_rows = sum(len(df) for df in all_dfs)
-        logging.info(f"📊 合并前总行数: {total_rows}, 数据框数量: {len(all_dfs)}")
+        logging.info(f"  > ✅ 批量查询完成，获得 {len(all_price_df)} 行数据")
         
-        # 检查是否有重复的asset
-        asset_counts = {}
-        for df in all_dfs:
-            asset = df['asset'].iloc[0] if not df.empty else None
-            if asset:
-                asset_counts[asset] = asset_counts.get(asset, 0) + 1
-        
-        duplicates = {k: v for k, v in asset_counts.items() if v > 1}
-        if duplicates:
-            logging.warning(f"⚠️ 发现重复的asset: {duplicates}")
-        
-        final_df = pd.concat(all_dfs)
-        
-        # 检查合并后的索引唯一性
-        if final_df.index.duplicated().any():
-            dup_count = final_df.index.duplicated().sum()
-            logging.warning(f"⚠️ 合并后发现 {dup_count} 个重复的date索引!")
-        
-        final_df.reset_index(inplace=True)
-        final_df.set_index(['date', 'asset'], inplace=True)
-        
-        # 检查MultiIndex的唯一性并去重
-        if final_df.index.duplicated().any():
-            dup_count = final_df.index.duplicated().sum()
-            logging.warning(f"⚠️ MultiIndex中发现 {dup_count} 个重复的(date, asset)索引!")
-            dup_indices = final_df.index[final_df.index.duplicated()]
-            logging.warning(f"重复索引示例: {dup_indices[:5].tolist()}")
+        # 2. 批量合并基本面数据（从预加载缓存中）
+        if fundamental_cache:
+            logging.info(f"  > 🚀 开始批量合并基本面数据...")
             
-            # 【【【修复】】】: 去除重复索引，保留最后一个
-            final_df = final_df[~final_df.index.duplicated(keep='last')]
-            logging.info(f"✅ 已去除重复索引，剩余行数: {len(final_df)}")
+            # 创建一个大的基本面数据框
+            all_fund_dfs = []
+            for table_name, fund_data_dict in fundamental_cache.items():
+                # 从缓存中提取所有股票的基本面数据
+                for symbol, fund_df in fund_data_dict.items():
+                    if symbol in universe:  # 只处理需要的股票
+                        fund_df_copy = fund_df.copy()
+                        fund_df_copy['code'] = symbol
+                        fund_df_copy = fund_df_copy.reset_index()
+                        all_fund_dfs.append(fund_df_copy)
+            
+            if all_fund_dfs:
+                # 合并所有基本面数据
+                combined_fund_df = pd.concat(all_fund_dfs, ignore_index=True)
+                combined_fund_df['date'] = pd.to_datetime(combined_fund_df['date'])
+                
+                # 按code和date合并到行情数据
+                merge_cols = [col for col in combined_fund_df.columns if col not in ['code', 'date']]
+                if merge_cols:
+                    all_price_df = all_price_df.merge(
+                        combined_fund_df, 
+                        on=['code', 'date'], 
+                        how='left',
+                        suffixes=('', '_fund')
+                    )
+                    
+                    # 处理重复列名
+                    for col in merge_cols:
+                        if f"{col}_fund" in all_price_df.columns:
+                            all_price_df[col] = all_price_df[col].fillna(all_price_df[f"{col}_fund"])
+                            all_price_df.drop(columns=[f"{col}_fund"], inplace=True)
         
-        final_df.sort_index(inplace=True)
-
-        return final_df
+        # 3. 向量化添加行业数据
+        if load_industry and industry_map:
+            logging.info(f"  > 🚀 向量化添加行业数据...")
+            all_price_df['industry'] = all_price_df['code'].map(industry_map)
+        
+        # 4. 重塑索引格式
+        logging.info(f"  > ⚙️ 重塑数据索引...")
+        
+        # 确保有date列，如果没有则使用索引
+        if 'date' not in all_price_df.columns:
+            if all_price_df.index.name == 'date':
+                all_price_df = all_price_df.reset_index()
+            else:
+                logging.warning("⚠️ 未找到date列，使用当前日期作为默认")
+                all_price_df['date'] = pd.Timestamp.now()
+        
+        # 调试：检查重命名前的列
+        logging.debug(f"  > 🔍 调试：重命名前列名: {all_price_df.columns.tolist()}")
+        
+        all_price_df.rename(columns={'code': 'asset'}, inplace=True)
+        
+        # 调试：检查重命名后的列和索引
+        logging.debug(f"  > 🔍 调试：重命名后列名: {all_price_df.columns.tolist()}")
+        logging.debug(f"  > 🔍 调试：当前索引名称: {all_price_df.index.names}")
+        
+        # 检查是否已有多级索引
+        if isinstance(all_price_df.index, pd.MultiIndex):
+            logging.warning(f"⚠️ 数据已有多级索引: {all_price_df.index.names}")
+            # 如果已有多级索引，先重置
+            all_price_df = all_price_df.reset_index()
+            logging.debug(f"  > 🔍 重置后列名: {all_price_df.columns.tolist()}")
+        
+        all_price_df.set_index(['date', 'asset'], inplace=True)
+        all_price_df.sort_index(inplace=True)
+        
+        # 调试：检查最终索引结构
+        logging.debug(f"  > 🔍 调试：最终索引名称: {all_price_df.index.names}")
+        logging.debug(f"  > 🔍 调试：最终索引级别数: {all_price_df.index.nlevels}")
+        
+        # 5. 前向填充缺失值（基本面数据常用）
+        # 修复：使用级别号而不是名称来避免重复名称问题
+        try:
+            all_price_df = all_price_df.groupby(level=1, group_keys=False).apply(
+                lambda x: x.ffill() if not x.empty else x
+            )
+        except Exception as e:
+            logging.warning(f"⚠️ 使用级别号1进行前向填充失败: {e}")
+            # 尝试查找asset对应的级别号
+            for i, name in enumerate(all_price_df.index.names):
+                if name == 'asset':
+                    logging.debug(f"  > 找到asset在级别号 {i}，用于前向填充")
+                    all_price_df = all_price_df.groupby(level=i, group_keys=False).apply(
+                        lambda x: x.ffill() if not x.empty else x)
+                    break
+        
+        # 【【【新增】】】: 在返回前统一处理重复索引，确保数据质量
+        if isinstance(all_price_df.index, pd.MultiIndex):
+            # 检查并去除重复索引
+            if all_price_df.index.duplicated().any():
+                dup_count = all_price_df.index.duplicated().sum()
+                logging.warning(f"⚠️ [数据加载] 发现 {dup_count} 个重复索引，正在统一处理...")
+                
+                # 记录重复索引示例（用于调试）
+                dup_indices = all_price_df.index[all_price_df.index.duplicated()]
+                if len(dup_indices) > 0:
+                    logging.debug(f"重复索引示例: {dup_indices[:5].tolist()}")
+                
+                # 去除重复索引，保留最后一个值
+                original_shape = all_price_df.shape
+                all_price_df = all_price_df[~all_price_df.index.duplicated(keep='last')]
+                logging.info(f"✅ [数据加载] 已去除重复索引，数据形状从 {original_shape} 变为 {all_price_df.shape}")
+        
+        logging.info(f"  > ✅ 批量合并完成！最终数据形状: {all_price_df.shape}")
+        return all_price_df
 
     def _preload_fundamental_table(self, table_name: str,
                                    required_cols: list) -> pd.DataFrame | None:
@@ -538,10 +622,53 @@ class DataProviderManager:
             logging.error("❌ 无法加载数据用于计算收益率。")
             return None
 
+        # 调试：检查索引结构
+        logging.debug(f"  > 🔍 调试：检查数据索引结构...")
+        logging.debug(f"    > 索引名称: {all_data.index.names}")
+        logging.debug(f"    > 索引级别数: {all_data.index.nlevels}")
+        logging.debug(f"    > 数据形状: {all_data.shape}")
+        logging.debug(f"    > 列名: {all_data.columns.tolist()}")
+        
+        # 检查是否有重复的索引名称
+        if all_data.index.nlevels > 1:
+            level_names = all_data.index.names
+            name_counts = {}
+            for name in level_names:
+                if name in name_counts:
+                    name_counts[name] += 1
+                else:
+                    name_counts[name] = 1
+            
+            for name, count in name_counts.items():
+                if count > 1:
+                    logging.warning(f"⚠️ 发现重复的索引名称: '{name}' 出现 {count} 次")
+        
         # 使用 groupby().apply()
-        # group_keys=False 防止索引层级增加
-        returns_df = all_data.groupby(level='asset', group_keys=False).apply(
-            lambda x: _calculate_forward_returns(x, forward_return_periods))
+        # 修复：使用级别号而不是名称来避免重复名称问题
+        try:
+            # 尝试使用级别号（假设asset是第二级索引，级别号为1）
+            returns_df = all_data.groupby(level=1, group_keys=False).apply(
+                lambda x: _calculate_forward_returns(x, forward_return_periods))
+        except Exception as e:
+            logging.error(f"❌ 使用级别号1失败: {e}")
+            # 如果级别号1不正确，尝试查找asset对应的级别号
+            if all_data.index.nlevels > 1:
+                for i, name in enumerate(all_data.index.names):
+                    if name == 'asset':
+                        logging.debug(f"  > 找到asset在级别号 {i}")
+                        returns_df = all_data.groupby(level=i, group_keys=False).apply(
+                            lambda x: _calculate_forward_returns(x, forward_return_periods))
+                        break
+                else:
+                    # 如果找不到asset名称，直接使用第一级
+                    logging.warning("⚠️ 未找到asset索引，使用第一级索引")
+                    returns_df = all_data.groupby(level=0, group_keys=False).apply(
+                        lambda x: _calculate_forward_returns(x, forward_return_periods))
+            else:
+                # 单级索引情况
+                logging.warning("⚠️ 单级索引，不使用level参数")
+                returns_df = all_data.groupby(group_keys=False).apply(
+                    lambda x: _calculate_forward_returns(x, forward_return_periods))
 
         # 筛选出需要的列 (date, asset, forward_return_*)
         # 由于 apply 后索引是 (date, asset)，我们需要 reset_index 来获得这两列

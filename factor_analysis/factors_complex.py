@@ -39,47 +39,56 @@ def _neutralize_by_industry(base_factor_series: pd.Series,
     """
     一个通用的行业中性化辅助函数，用于简化代码。
     被所有 IndNeu_* 因子调用。
+    
+    【【【重构】】】: 优化数据处理流程，避免产生重复索引
     """
     logging.info(f"      > (2/2) 正在为 {factor_name} 执行行业中性化...")
 
-    # 1. 将基础因子和行业数据合并
-    all_data_df = pd.concat([base_factor_series, industry_col], axis=1)
-    all_data_df.columns = ['temp_factor', 'industry']  # 重命名以便通用
+    # 【【【优化 1】】】: 在合并前先检查输入数据的索引唯一性
+    if base_factor_series.index.duplicated().any():
+        dup_count = base_factor_series.index.duplicated().sum()
+        logging.warning(f"⚠️ [{factor_name}] 输入的基础因子序列有 {dup_count} 个重复索引，正在预处理...")
+        base_factor_series = base_factor_series[~base_factor_series.index.duplicated(keep='last')]
+        logging.info(f"✅ [{factor_name}] 已预处理基础因子序列，剩余行数: {len(base_factor_series)}")
+    
+    if industry_col.index.duplicated().any():
+        dup_count = industry_col.index.duplicated().sum()
+        logging.warning(f"⚠️ [{factor_name}] 输入的行业数据序列有 {dup_count} 个重复索引，正在预处理...")
+        industry_col = industry_col[~industry_col.index.duplicated(keep='last')]
+        logging.info(f"✅ [{factor_name}] 已预处理行业数据序列，剩余行数: {len(industry_col)}")
 
+    # 【【【优化 2】】】: 使用更安全的合并方式，避免索引重复
+    # 将基础因子和行业数据合并，使用 DataFrame 的 join 方法
+    # 这种方法更安全，因为它会自动处理索引对齐
+    base_df = base_factor_series.to_frame('temp_factor')
+    industry_df = industry_col.to_frame('industry')
+    
+    # 使用 join 而不是 concat，这样可以更好地处理索引对齐
+    all_data_df = base_df.join(industry_df, how='inner')
+    
     # 2. 中性化
-    valid_data = all_data_df.dropna()
+    valid_data = all_data_df.dropna(subset=['temp_factor', 'industry'])
     if valid_data.empty:
         logging.warning(f"      > ⚠️ [{factor_name}] 没有有效的（因子+行业）数据进行中性化。")
         return None
 
-    industry_means = valid_data.groupby(['date',
-                                         'industry'])['temp_factor'].mean()
-
-    valid_data = valid_data.reset_index()
-    industry_means = industry_means.reset_index(name='industry_mean')
-
-    merged_data = pd.merge(valid_data,
-                           industry_means,
-                           on=['date', 'industry'],
-                           how='left')
-
-    # 3. 计算中性化因子 (因子值 - 行业均值)
-    merged_data[factor_name] = merged_data['temp_factor'] - merged_data[
-        'industry_mean']
-
-    result_series = merged_data.set_index(['date', 'asset'])[factor_name]
+    # 【【【优化 3】】】: 使用 transform 避免合并操作可能产生的重复索引
+    # 直接计算行业均值并广播回原始数据
+    industry_means = valid_data.groupby(['date', 'industry'])['temp_factor'].transform('mean')
+    
+    # 计算中性化因子 (因子值 - 行业均值)
+    valid_data[factor_name] = valid_data['temp_factor'] - industry_means
+    
+    # 【【【优化 4】】】: 直接从 valid_data 提取结果，避免重新设置索引
+    result_series = valid_data[factor_name]
     result_series.name = factor_name
     
-    # 【【【调试日志】】】: 检查行业中性化后的索引唯一性
+    # 【【【最终检查】】】: 确保结果没有重复索引（理论上不应该有了）
     if result_series.index.duplicated().any():
         dup_count = result_series.index.duplicated().sum()
-        logging.warning(f"⚠️ [{factor_name}] 行业中性化后发现 {dup_count} 个重复索引!")
-        dup_indices = result_series.index[result_series.index.duplicated()]
-        logging.warning(f"重复索引示例: {dup_indices[:5].tolist()}")
-        
-        # 【【【修复】】】: 去除重复索引，保留最后一个
+        logging.warning(f"⚠️ [{factor_name}] 最终结果仍有 {dup_count} 个重复索引，进行最终处理...")
         result_series = result_series[~result_series.index.duplicated(keep='last')]
-        logging.info(f"✅ [{factor_name}] 已去除重复索引，剩余行数: {len(result_series)}")
+        logging.info(f"✅ [{factor_name}] 最终处理完成，剩余行数: {len(result_series)}")
     
     return result_series.sort_index()
 
@@ -94,7 +103,7 @@ def _calculate_base_momentum(stock_df, period=20):
     [IndNeu_Momentum 辅助函数]
     一个内部的、简化的动量计算。
     """
-    return stock_df['close'].pct_change(periods=period) * 100
+    return stock_df['close'].pct_change(periods=period, fill_method=None) * 100
 
 
 def calculate_industry_neutral_momentum(
@@ -112,7 +121,7 @@ def calculate_industry_neutral_momentum(
     # 1. 计算基础动量
     logging.info(f"      > (1/2) 正在计算基础 {factor_name} (20d pct_change)...")
     base_momentum = all_data_df.groupby(
-        level='asset')['close'].pct_change(20) * 100
+        level='asset')['close'].pct_change(periods=20, fill_method=None) * 100
 
     # 2. 行业中性化 (使用通用辅助函数)
     return _neutralize_by_industry(base_momentum, all_data_df['industry'],
@@ -161,7 +170,7 @@ def calculate_industry_neutral_reversal20d(
     period = 40
     decay = 20
 
-    daily_returns = all_data_df.groupby(level='asset')['close'].pct_change()
+    daily_returns = all_data_df.groupby(level='asset')['close'].pct_change(fill_method=None)
     daily_returns.replace(0.0, np.nan, inplace=True)
 
     weights = 2.0**-(np.arange(period, 0, -1) / decay)
@@ -417,8 +426,23 @@ def calculate_industry_neutral_sales_growth(
     logging.info(f"      > (1/2) 正在计算基础 {factor_name} (YoY, lag=252)...")
 
     # pct_change(252) 计算 (Today - Today-252) / Today-252
-    raw_growth = all_data_df.groupby(
-        level='asset')['total_revenue'].pct_change(periods=252)
+    # 【修复 FutureWarning】: 明确指定 fill_method=None 以避免未来版本中的警告
+    logging.debug(f"      > [调试] 在计算营收增长率前检查 total_revenue 数据")
+    revenue_data = all_data_df.groupby(level='asset')['total_revenue']
+    
+    # 检查数据中的 NaN 值情况
+    sample_asset = all_data_df.index.get_level_values('asset')[0]
+    # 修复：索引顺序是 (date, asset)，所以需要使用 xs 来正确访问
+    sample_data = all_data_df.xs(sample_asset, level='asset')['total_revenue'].head(10)
+    logging.debug(f"      > [调试] 样本资产 {sample_asset} 的前10个营收数据: {sample_data.tolist()}")
+    
+    # 修复：revenue_data 是 SeriesGroupBy 对象，需要先计算再检查 NaN
+    nan_count = revenue_data.apply(lambda x: x.isna().sum()).sum()
+    logging.debug(f"      > [调试] total_revenue 中的 NaN 值总数: {nan_count}")
+    
+    # 使用 fill_method=None 来避免 FutureWarning
+    raw_growth = revenue_data.pct_change(periods=252, fill_method=None)
+    logging.debug(f"      > [调试] 营收增长率计算完成，NaN 值数量: {raw_growth.isna().sum()}")
 
     # 2. 极值处理
     # 营收增长率可能因基数极小出现极端值，将其视为无效

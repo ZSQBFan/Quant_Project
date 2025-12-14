@@ -29,7 +29,7 @@ try:
 
     # --- Step 3: 计算核心指标 ---
     # 1. 计算日收益率
-    df['daily_return'] = df['close'].pct_change()
+    df['daily_return'] = df['close'].pct_change(fill_method=None)
 
     # 2. 计算移动平均线 (Moving Averages)
     df['ma20'] = df['close'].rolling(window=5).mean() # 5日均线

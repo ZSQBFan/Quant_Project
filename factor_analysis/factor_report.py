@@ -56,8 +56,7 @@ class FactorReport:
         # 如果传入了基准数据，计算其日收益率并储存
         self.benchmark_returns = None
         if benchmark_data is not None and not benchmark_data.empty:
-            self.benchmark_returns = benchmark_data['close'].pct_change(
-            ).dropna()
+            self.benchmark_returns = benchmark_data['close'].pct_change(fill_method=None).dropna()
             logging.info("  > 📈 基准数据已加载，将用于对比。")
         else:
             logging.info("  > ℹ️ 未加载基准数据，报告中将不包含对比。")

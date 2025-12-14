@@ -44,7 +44,7 @@ FACTORS_TO_RUN = [
     "IndNeu_EP",
     # "IndNeu_BP"
     # "IndNeu_ROE",
-    # "IndNeu_SalesGrowth",  #似乎有点问题？
+    "IndNeu_SalesGrowth",  
     "IndNeu_CFOP",
     "IndNeu_GPM",
     # "IndNeu_AssetTurnover",
@@ -331,17 +331,28 @@ if __name__ == '__main__':
     else:
         logging.info("⚙️ 步骤 3a: 合并因子数据...")
         
-        # 【【【调试日志】】】: 检查索引唯一性
+        # 【【【重构】】】: 统一的重复索引预处理
+        total_dups_found = 0
         for factor_name, factor_series in all_factors_dfs.items():
             if factor_series.index.duplicated().any():
                 dup_count = factor_series.index.duplicated().sum()
-                logging.warning(f"⚠️ 因子 {factor_name} 发现 {dup_count} 个重复索引!")
-                dup_indices = factor_series.index[factor_series.index.duplicated()]
-                logging.warning(f"重复索引示例: {dup_indices[:5].tolist()}")
+                total_dups_found += dup_count
+                logging.warning(f"⚠️ 因子 {factor_name} 发现 {dup_count} 个重复索引，正在统一处理...")
                 
-                # 【【【修复】】】: 去除重复索引，保留最后一个
+                # 记录重复索引示例（仅记录前5个用于调试）
+                dup_indices = factor_series.index[factor_series.index.duplicated()]
+                if len(dup_indices) > 0:
+                    logging.debug(f"重复索引示例: {dup_indices[:5].tolist()}")
+                
+                # 去除重复索引，保留最后一个
+                original_len = len(factor_series)
                 all_factors_dfs[factor_name] = factor_series[~factor_series.index.duplicated(keep='last')]
-                logging.info(f"✅ 因子 {factor_name} 已去除重复索引，剩余行数: {len(all_factors_dfs[factor_name])}")
+                logging.info(f"✅ 因子 {factor_name} 已处理重复索引：{original_len} -> {len(all_factors_dfs[factor_name])}")
+        
+        if total_dups_found > 0:
+            logging.info(f"🔧 [预处理] 共处理了 {total_dups_found} 个重复索引，所有因子数据已确保索引唯一性")
+        else:
+            logging.info("✅ [预处理] 所有因子数据索引唯一性检查通过")
         
         # 检查股票池是否有重复
         original_universe_size = len(active_universe)
@@ -352,12 +363,33 @@ if __name__ == '__main__':
             duplicates = Counter([x for x in active_universe if active_universe.count(x) > 1])
             logging.warning(f"重复的股票代码: {dict(duplicates)}")
 
-        combined_factors_df = pd.concat(all_factors_dfs.values(),
-                                        axis=1,
-                                        keys=all_factors_dfs.keys())
-        if isinstance(combined_factors_df.columns, pd.MultiIndex):
-            combined_factors_df.columns = combined_factors_df.columns.droplevel(
-                1)
+        # 【【【优化】】】: 使用更安全的合并方式，避免产生新的重复索引
+        try:
+            combined_factors_df = pd.concat(all_factors_dfs.values(),
+                                            axis=1,
+                                            keys=all_factors_dfs.keys())
+            if isinstance(combined_factors_df.columns, pd.MultiIndex):
+                combined_factors_df.columns = combined_factors_df.columns.droplevel(1)
+            
+            # 【【【最终检查】】】: 确保合并后的数据没有重复索引
+            if combined_factors_df.index.duplicated().any():
+                dup_count = combined_factors_df.index.duplicated().sum()
+                logging.warning(f"⚠️ 合并后发现 {dup_count} 个重复索引，进行最终处理...")
+                combined_factors_df = combined_factors_df[~combined_factors_df.index.duplicated(keep='last')]
+                logging.info(f"✅ 合并数据重复索引处理完成")
+                
+        except Exception as e:
+            logging.error(f"❌ 因子合并失败: {e}")
+            # 如果合并失败，尝试逐个合并以定位问题
+            combined_factors_df = pd.DataFrame()
+            for factor_name, factor_series in all_factors_dfs.items():
+                try:
+                    if combined_factors_df.empty:
+                        combined_factors_df = factor_series.to_frame()
+                    else:
+                        combined_factors_df = combined_factors_df.join(factor_series, how='outer')
+                except Exception as inner_e:
+                    logging.error(f"❌ 因子 {factor_name} 合并失败: {inner_e}")
 
         # ======================================================================
         # 【【【关键修正】】】: 在进入策略分支前，统一进行全局截面标准化
@@ -494,7 +526,7 @@ if __name__ == '__main__':
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             output_filename = os.path.join(
                 OUTPUT_DIR,
-                f"report_{final_factor_name}_{std_name}_{timestamp}.html")
+                f"{timestamp}_report_{final_factor_name}_{std_name}.html")
 
             logging.info(f"⚙️ 生成 HTML 报告: {output_filename}")
             report_generator.generate_html_report(output_filename)
