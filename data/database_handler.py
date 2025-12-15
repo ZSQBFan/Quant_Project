@@ -141,10 +141,24 @@ class DatabaseHandler:
                 f"  > ⚙️ [线程 {threading.get_ident()}] 正在执行查询: {query} | Params: {params}"
             )
             df = pd.read_sql(query, conn, params=params)
+            
+            # 添加详细调试信息
+            logging.debug(f"  > 🔍 查询返回数据形状: {df.shape}")
+            logging.debug(f"  > 🔍 查询返回列名: {df.columns.tolist()}")
+            if not df.empty:
+                logging.debug(f"  > 🔍 前几行数据样本:")
+                for i, (idx, row) in enumerate(df.head(3).iterrows()):
+                    logging.debug(f"    行 {i}: 索引={idx} (类型: {type(idx)}), 数据={row.to_dict()}")
+            
             # (查询成功不需要打印 info 日志，否则会刷屏)
             if 'date' in df.columns:
+                logging.debug(f"  > 🔍 发现date列，开始转换...")
                 df['date'] = pd.to_datetime(df['date'])
                 df.set_index('date', inplace=True)
+                logging.debug(f"  > ✅ date列转换完成，索引类型: {type(df.index)}")
+                if len(df) > 0:
+                    logging.debug(f"  > 🔍 转换后第一个索引值: {df.index[0]} (类型: {type(df.index[0])})")
+                    
             return df
         except Exception as e:
             # 【【【修改】】】

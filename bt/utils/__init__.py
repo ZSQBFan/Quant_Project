@@ -1,4 +1,10 @@
+# bt/utils/__init__.py
+
 """
-Backtrader回测工具函数
+Backtrader 工具模块
 """
+
+from .report_generator import ReportGenerator
+
+__all__ = ['ReportGenerator']
 

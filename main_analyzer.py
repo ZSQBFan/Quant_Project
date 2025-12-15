@@ -8,7 +8,13 @@ import sys
 import datetime
 
 # ==============================================================================
-# 1. 策略分析“控制面板” (Strategy Analysis "Control Panel")
+# 1f. Backtrader 回测开关
+# ==============================================================================
+# RUN_BACKTRADER = False  # 设置为 True 启用 Backtrader 事件驱动回测
+RUN_BACKTRADER = True
+
+# ==============================================================================
+# 1. 策略分析"控制面板" (Strategy Analysis "Control Panel")
 # ==============================================================================
 
 # --- 1a. 核心策略选择 (Core Strategy Selection) ---
@@ -77,8 +83,8 @@ SKIP_DATA_PREPARATION = True
 # SKIP_DATA_PREPARATION = False
 
 # --- 2a. 回测时间与收益周期 ---
-START_DATE = '2023-01-01'
-END_DATE = '2025-12-31'
+START_DATE = '2024-01-01'
+END_DATE = '2024-12-31'
 FORWARD_RETURN_PERIODS = [1, 5, 10, 20, 30, 90]
 
 # --- 2b. 基准与股票池 ---
@@ -536,3 +542,42 @@ if __name__ == '__main__':
             logging.warning("⚠️ 最终因子数据为空，无法生成报告。")
 
     logging.info(f"\n{'='*60}\n🏁 分析流程执行完毕 🏁\n{'='*60}")
+
+# ==============================================================================
+# 5. Backtrader 事件驱动回测（可选）
+# ==============================================================================
+if RUN_BACKTRADER:
+    logging.info(f"\n{'='*60}\n--- 步骤 5: Backtrader 事件驱动回测 ---\n{'='*60}")
+    
+    try:
+        from bt.data.exporter import BTDataExporter
+        from bt.backtest import run_backtest
+        
+        # 5.1 导出数据
+        logging.info("⚙️ 正在导出数据供 Backtrader 使用...")
+        
+        exporter = BTDataExporter(data_manager)
+        
+        # 获取 composite_factor_series（大因子）
+        # 注意：这里需要根据实际的变量名调整
+        if 'composite_factor_series' in dir():
+            factor_series = composite_factor_series
+        else:
+            # 如果是单因子模式，从 combined_factors_df 提取
+            factor_series = combined_factors_df.iloc[:, -1]  # 最后一列
+        
+        exporter.export(
+            universe=active_universe,
+            start_date=START_DATE,
+            end_date=END_DATE,
+            factor_series=factor_series
+        )
+        
+        # 5.2 运行回测
+        logging.info("⚙️ 正在运行 Backtrader 回测...")
+        cerebro, results = run_backtest()
+        
+        logging.info("✅ Backtrader 回测完成！")
+        
+    except Exception as e:
+        logging.error(f"❌ Backtrader 回测失败: {e}", exc_info=True)

@@ -288,10 +288,21 @@ class DataProviderManager:
             if df is None or df.empty:
                 return None
 
+            # 添加详细调试信息
+            logging.debug(f"    > 🔍 查询返回数据形状: {df.shape}")
+            logging.debug(f"    > 🔍 查询返回列名: {df.columns.tolist()}")
+            if hasattr(df.index, 'names'):
+                logging.debug(f"    > 🔍 查询返回索引名称: {df.index.names}")
+            logging.debug(f"    > 🔍 查询返回索引类型: {type(df.index)}")
+            if len(df) > 0:
+                logging.debug(f"    > 🔍 第一个索引值: {df.index[0]} (类型: {type(df.index[0])})")
+
             # 确保 date 是 datetime 类型并设为索引
             if 'date' in df.columns:
+                logging.debug(f"    > 🔍 发现date列，开始转换...")
                 df['date'] = pd.to_datetime(df['date'])
                 df.set_index('date', inplace=True)
+                logging.debug(f"    > ✅ date列转换完成，索引类型: {type(df.index)}")
 
             return df
         except Exception as e:
