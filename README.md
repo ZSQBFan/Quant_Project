@@ -1,259 +1,268 @@
-# 量化投资分析系统
+# Quant Project
 
-一个专业的股票量化投资分析框架，支持多因子模型、动态权重策略、机器学习集成和 Backtrader 事件驱动回测。
+一个基于 Python 的量化交易系统，支持因子研究、策略回测和投资组合分析。
 
-## 项目概述
+## 功能特性
 
-本项目是一个完整的量化投资分析系统，专注于因子投资策略的研究与回测。系统采用模块化设计，支持多种因子类型和组合策略，提供全面的分析报告。
-
-## 核心特性
-
-### 多因子模型
-- **量价因子**: 动量、反转、RSI、KDJ、布林带、MACD、ADX/DMI 等
-- **基本面因子**: EP、BP、ROE、销售增长、现金流等
-- **行业中性因子**: 消除行业影响的标准化因子
-
-### 策略框架
-- **静态组合策略**: 等权重、固定权重、动态显著性
-- **动态滚动策略**: 基于 ICIR、回归分析的动态权重调整
-- **机器学习策略**: LightGBM 模型预测
-- **对抗性 LLM 策略**: 多智能体因子组合
-
-### 分析功能
-- 因子 IC 分析、分组回测、衰减分析
-- 多周期收益率预测 (1/5/10/20/30 日)
-- 交互式 HTML 报告生成
-
-### 回测系统
-- 基于 Backtrader 的事件驱动回测
-- 支持止损、定期调仓等触发器
-- Top-N 选股器、等权重分配器
-- 完整的回测报告生成
+- **多数据源支持** - Tushare、Akshare、本地 SQLite 数据库
+- **因子系统** - 20+ 预定义因子，支持行业中性处理
+- **回测引擎** - 基于 Backtrader 的事件驱动回测框架
+- **可插拔架构** - 装饰器自动注册，易于扩展新组件
+- **配置驱动** - YAML 配置文件，参数化管理
 
 ## 项目结构
 
 ```
-quant_project/
-├── main.py                     # 统一入口
-├── configs/                    # YAML 配置中心
-│   ├── factors.yaml           # 因子配置
-│   ├── strategies.yaml        # 策略配置
-│   ├── backtest.yaml          # 回测配置
-│   └── universe.yaml          # 股票池配置
-├── core/                       # 框架核心
-│   ├── abstractions.py        # 抽象基类
-│   ├── registry.py            # 组件注册表
-│   ├── loader.py              # 动态模块加载
-│   ├── config.py              # 配置加载器
-│   └── strategy.py            # 策略配置
-├── factors/                    # 因子领域
-│   ├── library/               # 因子库（单文件单因子）
-│   │   ├── momentum.py        # 动量因子
-│   │   ├── rsi.py             # RSI 因子
-│   │   ├── macd.py            # MACD 因子
+quant_project_3.12_macmini/
+├── core/                   # 核心框架层
+│   ├── registry.py         # 组件注册表
+│   ├── loader.py           # 动态模块加载器
+│   ├── config.py           # 配置管理
+│   └── abstractions.py     # 抽象基类
+├── data/                   # 数据层
+│   ├── manager.py          # 数据提供管理器
+│   ├── calendar.py         # 交易日历
+│   ├── providers/          # 数据源驱动
+│   └── handlers/           # 数据库处理器
+├── factors/                # 因子系统
+│   ├── library/            # 因子库
+│   │   ├── momentum.py     # 动量因子
+│   │   ├── rsi.py          # RSI 指标
+│   │   ├── macd.py         # MACD 指标
 │   │   └── industry_neutral/  # 行业中性因子
-│   ├── pipeline/              # 因子处理流水线
-│   │   ├── combiners/         # 因子合成器
-│   │   ├── standardizers/     # 标准化器
-│   │   └── rolling/           # 滚动计算器
-│   └── analysis/              # 因子分析
-│       ├── calculator.py      # 因子计算器
-│       ├── metrics.py         # 分析指标
-│       └── report.py          # 报告生成
-├── backtest/                   # 回测领域
-│   ├── core/                  # 核心策略组件
-│   ├── pipeline/              # 回测流水线
-│   │   ├── selectors/         # 选股器
-│   │   ├── allocators/        # 权重分配器
-│   │   └── capital/           # 资金管理器
-│   ├── triggers/              # 触发器
-│   ├── data/                  # 数据导出
-│   └── reports/               # 报告生成
-├── data/                       # 数据层
-│   ├── manager.py             # 数据管理器
-│   ├── calendar.py            # 交易日历
-│   ├── providers/             # 数据提供者
-│   │   ├── sqlite.py          # SQLite 数据源
-│   │   ├── akshare.py         # Akshare 数据源
-│   │   └── tushare.py         # Tushare 数据源
-│   └── handlers/              # 数据处理器
-│       └── database.py        # 数据库处理
-├── utils/                      # 通用工具
-│   └── logger.py              # 日志配置
-├── scripts/                    # 执行脚本
-│   ├── run_factor_analysis.py # 因子分析脚本
-│   ├── run_backtest.py        # 回测脚本
-│   └── download_data.py       # 数据下载脚本
-├── database/                   # 数据库目录
-├── output/                     # 输出目录
-│   ├── reports/               # 因子分析报告
-│   └── logs/                  # 日志文件
-├── bt_report/                  # 回测报告目录
-├── bt_data/                    # Backtrader 数据目录
-└── old_code/                   # 旧代码备份
+│   ├── pipeline/           # 处理流水线
+│   │   ├── combiners/      # 因子合成器
+│   │   ├── standardizers/  # 标准化器
+│   │   └── rolling/        # 滚动计算器
+│   └── analysis/           # 因子分析
+├── backtest/               # 回测系统
+│   ├── core/               # 回测核心
+│   ├── pipeline/           # 回测流水线
+│   │   ├── selectors/      # 选股器
+│   │   ├── allocators/     # 权重分配器
+│   │   └── capital/        # 资金管理器
+│   └── triggers/           # 触发器
+├── configs/                # 配置文件
+│   ├── universe.yaml       # 股票池配置
+│   ├── data/               # 数据配置
+│   ├── factors/            # 因子配置
+│   └── backtest/           # 回测配置
+├── scripts/                # 执行脚本
+├── database/               # 数据库存储
+├── output/                 # 输出目录
+│   ├── logs/               # 日志文件
+│   ├── factor_reports/     # 因子分析报告
+│   └── bt_reports/         # 回测报告
+└── test/                   # 测试文件
 ```
 
-## 快速开始
+## 环境要求
 
-### 1. 环境配置
+- Python 3.12+
+- uv (包管理器)
+
+## 安装
+
 ```bash
-pip install -r requirements.txt
+# 克隆项目
+git clone <repository-url>
+cd quant_project_3.12_macmini
+
+# 安装依赖
+uv sync
 ```
 
-### 2. 运行模式
+## 配置
 
-系统提供统一的命令行入口：
+### 数据源配置
+
+编辑 `configs/data/config.yaml`:
+
+```yaml
+start_date: 2023-01-01
+end_date: 2024-01-01
+database:
+  db_path: "./database/quant_data.db"
+download:
+  num_checker_threads: 16
+  num_downloader_threads: 16
+  batch_size: 200
+provider_priority:
+  - sqlite
+```
+
+如需使用 Tushare，请设置 token:
+
+```yaml
+tushare:
+  token: "your_tushare_token"
+```
+
+### 股票池配置
+
+编辑 `configs/universe.yaml` 配置股票池（默认沪深300成分股）。
+
+## 使用方法
+
+### 数据下载
 
 ```bash
-# 因子分析模式 - 计算因子、生成分析报告
-python main.py --mode factor_analysis
-
-# 回测模式 - 运行 Backtrader 事件驱动回测
-python main.py --mode backtest
-
-# 数据下载模式 - 下载/更新股票数据
 python main.py --mode download_data
+```
 
-# 列出组件 - 显示所有已注册的因子、策略等
+### 因子分析
+
+```bash
+python main.py --mode factor_analysis
+```
+
+### 策略回测
+
+```bash
+python main.py --mode backtest
+```
+
+### 查看注册组件
+
+```bash
 python main.py --mode list_components
 ```
 
-### 3. 查看报告
+## 因子系统
 
-- **因子分析报告**: `output/factor_reports/` 目录
-- **回测报告**: `output/bt_reports/` 目录
+### 预定义因子
 
-## 配置文件
+**简单因子**:
+- Momentum - 动量因子
+- Reversal20D - 反转因子
+- RSI - 相对强弱指标
+- MACD - 移动平均收敛发散
+- KDJ - 随机指标
+- BollingerBands - 布林带
+- MovingAverageCross - 均线交叉
+- ADXDMI - 趋势强度指标
+- VolumeSpike - 成交量异常
 
-### 因子配置 (`configs/factors.yaml`)
-```yaml
-Momentum:
-  enabled: true
-  category: simple
-  params:
-    period: 20
-  required_columns: [close]
+**行业中性因子**:
+- IndNeu_Momentum - 行业中性动量
+- IndNeu_Reversal20D - 行业中性反转
+- IndNeu_EP - 行业中性市盈率
+- IndNeu_BP - 行业中性市净率
+- IndNeu_ROE - 行业中性 ROE
+- IndNeu_GPM - 行业中性毛利率
+- IndNeu_SalesGrowth - 行业中性营收增长
+- IndNeu_CFOP - 行业中性现金流
+- IndNeu_VolumeCV - 行业中性成交量
 
-IndNeu_EP:
-  enabled: true
-  category: complex
-  required_columns: [close, net_profit_parent, share_capital]
-```
+### 因子合成方式
 
-### 策略配置 (`configs/strategies.yaml`)
-```yaml
-EqualWeights:
-  enabled: true
-  combiner: EqualWeight
-  standardizer: ZScore
+- `EqualWeightCombiner` - 等权合成
+- `FixedWeightCombiner` - 固定权重
+- `DynamicWeightCombiner` - 动态权重
+- `DynamicSignificanceCombiner` - 基于显著性的动态权重
+- `AICombiner` - LightGBM 模型动态权重
 
-RollingICIR:
-  enabled: true
-  combiner: DynamicWeight
-  standardizer: ZScore
-  rolling_calculator: RollingICIRCalculator
-  rolling_params:
-    window_size: 60
-    min_periods: 20
-```
+### 添加自定义因子
 
-### 回测配置 (`configs/backtest.yaml`)
-```yaml
-start_date: "2024-01-01"
-end_date: "2024-12-31"
-initial_cash: 1000000.0
-commission: 0.0003
-benchmark: "600519"
-```
+1. 在 `factors/library/` 中创建新文件:
 
-### 股票池配置 (`configs/universe.yaml`)
-```yaml
-universe:
-  - "600519"  # 贵州茅台
-  - "000858"  # 五粮液
-  # ...
-```
-
-## 组件注册机制
-
-系统使用装饰器模式注册组件，支持动态加载：
-
-### 注册因子
 ```python
+from factors.library.base import BaseFactor
 from core.registry import register_factor
 
 @register_factor("MyFactor")
-def calculate_my_factor(df: pd.DataFrame, **params) -> pd.Series:
-    # 因子计算逻辑
-    return factor_series
+class MyFactor(BaseFactor):
+    def calculate(self, df):
+        # 实现因子计算逻辑
+        return df['close'].pct_change(periods=10)
 ```
 
-### 注册合成器
-```python
-from core.registry import register_combiner
+2. 在配置文件中启用该因子
 
-@register_combiner("MyCombiner")
-class MyCombiner:
-    def combine(self, factors_df, weights=None):
-        # 合成逻辑
-        return combined_series
+## 回测系统
+
+### 回测配置
+
+编辑 `configs/backtest/config.yaml`:
+
+```yaml
+initial_cash: 1000000.0
+commission: 0.0003
+selector: TopN
+allocator: EqualWeight
+capital_manager: FullPosition
+triggers:
+  - type: RebalanceDay
+    params:
+      frequency: monthly
+  - type: StopLoss
+    params:
+      threshold: 0.1
 ```
 
-## 数据要求
+### 回测组件
 
-系统支持多种数据源：
-- **SQLite 数据库**: 本地股票数据
-- **Akshare**: 免费 A 股数据
-- **Tushare**: 专业金融数据 (需要 Token)
+**选股器 (Selector)**:
+- `TopNSelector` - 选择因子值最高的 N 只股票
 
-主要数据类型：
-- 股票价格数据 (日线 OHLCV)
-- 财务数据 (利润表、资产负债表、现金流量表)
-- 行业分类数据
-- 交易日历
+**权重分配器 (Allocator)**:
+- `EqualWeightAllocator` - 等权分配
 
-## 输出结果
+**资金管理器 (Capital Manager)**:
+- `FullPositionManager` - 全仓管理
 
-### 因子分析报告
-- 因子 IC/IR 分析
-- 分组收益率表现
-- 因子衰减分析
-- 累计收益曲线
-- 可视化图表
+**触发器 (Trigger)**:
+- `RebalanceDayTrigger` - 定期调仓
+- `StopLossTrigger` - 止损触发
 
-### 回测报告
-- 策略收益曲线
-- 最大回撤分析
-- 夏普比率
-- 交易明细
-- 持仓分析
+## 主要依赖
 
-## 扩展开发
+| 依赖 | 用途 |
+|------|------|
+| tushare | Tushare 金融数据 API |
+| akshare | Akshare 免费财经数据 |
+| backtrader | 事件驱动回测框架 |
+| pandas | 数据分析和处理 |
+| numpy | 数值计算 |
+| lightgbm | AI 因子合成 |
+| scikit-learn | 机器学习 |
+| matplotlib | 数据可视化 |
+| plotly | 交互式绘图 |
+| pyyaml | 配置解析 |
 
-### 添加新因子
-1. 在 `factors/library/` 创建新文件
-2. 使用 `@register_factor` 装饰器注册
-3. 在 `configs/factors.yaml` 中启用
+## 输出报告
 
-### 添加新策略
-1. 在 `factors/pipeline/combiners/` 实现合成器
-2. 使用 `@register_combiner` 装饰器注册
-3. 在 `configs/strategies.yaml` 中配置
+- **因子分析报告**: `output/factor_reports/` - IC、Rank IC、收益率分析
+- **回测报告**: `output/bt_reports/` - 交易记录、投资组合历史、业绩评估
+- **日志文件**: `output/logs/`
 
-### 添加新选股器/分配器
-1. 在 `backtest/pipeline/` 相应目录实现
-2. 继承基类并实现核心方法
+## 开发
 
-## 技术栈
+### 运行测试
 
-- **数据处理**: pandas, numpy
-- **机器学习**: scikit-learn, LightGBM
-- **回测引擎**: Backtrader
-- **可视化**: matplotlib, plotly
-- **并行计算**: joblib, multiprocessing
-- **数据库**: SQLite
-- **配置管理**: PyYAML
+```bash
+pytest test/
+```
 
-## 许可证
+### 项目架构
 
-MIT License
+系统采用可插拔的组件架构:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                      main.py                            │
+├─────────────────────────────────────────────────────────┤
+│  core/registry.py (组件注册表)                          │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+│  │   data/     │  │  factors/   │  │  backtest/  │     │
+│  │  数据管理   │ → │  因子计算   │ → │  策略回测   │     │
+│  └─────────────┘  └─────────────┘  └─────────────┘     │
+├─────────────────────────────────────────────────────────┤
+│                   configs/ (YAML)                       │
+└─────────────────────────────────────────────────────────┘
+```
+
+## License
+
+MIT
