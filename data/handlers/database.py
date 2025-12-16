@@ -100,16 +100,72 @@ class DatabaseHandler:
             return
 
         try:
+            # 调试日志：检查DataFrame结构和date列
             logging.debug(
-                f"[线程 {threading.get_ident()}] 正在向 '{table_name}' 表追加 {len(df)} 条数据..."
+                f"[线程 {threading.get_ident()}] DataFrame 列: {df.columns.tolist()}"
             )
-            df.to_sql(name=table_name,
-                      con=conn,
-                      if_exists='append',
-                      index=False)
-            logging.info(
-                f"[线程 {threading.get_ident()}] 成功向 '{table_name}' 表追加了 {len(df)} 条数据。"
+            logging.debug(
+                f"[线程 {threading.get_ident()}] DataFrame 索引: {df.index.name}"
             )
+            if 'date' in df.columns:
+                null_count = df['date'].isnull().sum()
+                logging.debug(
+                    f"[线程 {threading.get_ident()}] date列中NULL值数量: {null_count}"
+                )
+                if null_count > 0:
+                    logging.warning(
+                        f"[线程 {threading.get_ident()}] 发现 {null_count} 个NULL的date值！"
+                    )
+            else:
+                logging.warning(
+                    f"[线程 {threading.get_ident()}] DataFrame中没有date列！"
+                )
+            
+            # 如果date是索引，将其重置为列
+            if df.index.name == 'date' or (hasattr(df.index, 'names') and 'date' in df.index.names):
+                logging.debug(
+                    f"[线程 {threading.get_ident()}] 将date索引重置为列"
+                )
+                df = df.reset_index()
+            
+            # 处理重复数据：使用REPLACE INTO
+            if table_name == 'stock_daily_prices' and 'code' in df.columns and 'date' in df.columns:
+                logging.debug(f"[线程 {threading.get_ident()}] 检测到stock_daily_prices表，使用REPLACE INTO处理重复数据")
+                
+                # 创建临时表来存储新数据
+                temp_table = f"temp_stock_data_{threading.get_ident()}"
+                df.to_sql(name=temp_table, con=conn, if_exists='replace', index=False)
+                
+                # 使用REPLACE INTO语句处理重复数据
+                cursor = conn.cursor()
+                
+                # 获取列名（排除自增ID列）
+                columns = [col for col in df.columns if col != 'index']
+                cols_str = ', '.join(columns)
+                placeholders = ', '.join(['?' for _ in columns])
+                
+                replace_sql = f"""
+                REPLACE INTO {table_name} ({cols_str})
+                SELECT {cols_str} FROM {temp_table}
+                """
+                
+                cursor.execute(replace_sql)
+                cursor.execute(f"DROP TABLE IF EXISTS {temp_table}")
+                
+                logging.info(f"[线程 {threading.get_ident()}] 成功向 '{table_name}' 表插入/更新了 {len(df)} 条数据。")
+                
+            else:
+                logging.debug(
+                    f"[线程 {threading.get_ident()}] 正在向 '{table_name}' 表追加 {len(df)} 条数据..."
+                )
+                df.to_sql(name=table_name,
+                          con=conn,
+                          if_exists='append',
+                          index=False)
+                logging.info(
+                    f"[线程 {threading.get_ident()}] 成功向 '{table_name}' 表追加了 {len(df)} 条数据。"
+                )
+                
         except Exception as e:
             logging.error(
                 f"[线程 {threading.get_ident()}] 数据保存到 '{table_name}' 失败: {e}",

@@ -625,7 +625,48 @@ class DataProviderManager:
         if not batch:
             return
         try:
-            full_df = pd.concat(batch)
+            # 调试日志：检查批量数据
+            logging.debug(f"[批量保存] 准备合并 {len(batch)} 个DataFrame")
+            for i, df in enumerate(batch):
+                logging.debug(f"[批量保存] DataFrame {i}: 形状={df.shape}, 列={df.columns.tolist()}")
+                if df.index.name == 'date':
+                    logging.debug(f"[批量保存] DataFrame {i}: date是索引")
+                elif 'date' in df.columns:
+                    null_dates = df['date'].isnull().sum()
+                    logging.debug(f"[批量保存] DataFrame {i}: date列中有 {null_dates} 个NULL值")
+            
+            # 修复：确保所有DataFrame都有date列
+            processed_dfs = []
+            for i, df in enumerate(batch):
+                df_copy = df.copy()
+                # 如果date是索引，将其重置为列
+                if df_copy.index.name == 'date':
+                    logging.debug(f"[批量保存] DataFrame {i}: 将date索引重置为列")
+                    df_copy = df_copy.reset_index()
+                # 如果索引是MultiIndex且包含date，也重置
+                elif hasattr(df_copy.index, 'names') and 'date' in df_copy.index.names:
+                    logging.debug(f"[批量保存] DataFrame {i}: 将MultiIndex中的date重置为列")
+                    df_copy = df_copy.reset_index()
+                # 确保date列存在
+                if 'date' not in df_copy.columns:
+                    logging.warning(f"[批量保存] DataFrame {i}: 处理后仍然没有date列，跳过")
+                    continue
+                processed_dfs.append(df_copy)
+            
+            if not processed_dfs:
+                logging.error("[批量保存] 没有有效的DataFrame可保存")
+                return
+                
+            full_df = pd.concat(processed_dfs, ignore_index=True)
+            logging.debug(f"[批量保存] 合并后DataFrame形状: {full_df.shape}, 列: {full_df.columns.tolist()}")
+            
+            # 去重处理：移除重复的 (code, date) 组合
+            before_dedup = len(full_df)
+            full_df = full_df.drop_duplicates(subset=['code', 'date'], keep='last')
+            after_dedup = len(full_df)
+            if before_dedup != after_dedup:
+                logging.info(f"[批量保存] 去重处理: 移除了 {before_dedup - after_dedup} 条重复数据")
+            
             self.db_handler.save_data(full_df, self.table_name)
         except Exception as e:
             logging.error(f"批量写入失败: {e}")
