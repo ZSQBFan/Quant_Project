@@ -1,0 +1,81 @@
+数据库 quant_data.db 核心表结构总览
+1. stock_daily_prices - 日线行情数据
+这是所有量价因子的计算基础。
+
+列名称 (COLUMN NAME)	数据类型	中文含义	核心用途/备注
+code	TEXT	股票代码	主键，用于关联其他表
+date	DATE	交易日期	主键，时间序列索引
+open	REAL	开盘价	量价因子计算
+high	REAL	最高价	量价因子计算 (如KDJ, ADX)
+low	REAL	最低价	量价因子计算 (如KDJ, ADX)
+close	REAL	收盘价	核心价格，计算收益率、均线等
+volume	INTEGER	成交量 (股)	核心流动性指标
+turnover	REAL	成交额 (元)	核心流动性指标
+amplitude	REAL	振幅 (%)	波动性指标
+pct_change	REAL	涨跌幅 (%)	每日收益率
+price_change	REAL	涨跌额 (元)	每日价格变动
+turnover_rate	REAL	换手率 (%)	标准化的流动性指标
+2. stock_kind - 股票元数据与行业分类
+这是进行行业中性化、股票筛选（如剔除新股）的基础。
+
+列名称 (COLUMN NAME)	数据类型	中文含义	核心用途/备注
+Stkcd	TEXT	证券代码	主键，用于关联 stock_daily_prices
+Stknme	TEXT	证券简称	显示名称，方便调试
+Listdt	DATE	上市日期	用于剔除上市未满N天的新股
+Nnindcd	TEXT	行业代码	行业分类代码 (CSMAR)
+Nnindnme	TEXT	行业名称	核心字段，用于行业中性化
+OWNERSHIPTYPE	TEXT	企业性质名称	如’民营企业’, ‘地方国有企业’
+OWNERSHIPTYPECODE	TEXT	企业性质代码	企业性质分类代码
+Statco	TEXT	公司状态	如’上市’, ‘暂停上市’
+Markettype	TEXT	市场类型	如’主板A股’, ‘科创板’
+3. Stock_BalanceSheet - 资产负债表
+这是价值 (Value) 和 质量 (Quality) 因子的核心数据源。
+
+列名称 (CSMAR代码)	数据类型	中文含义	核心用途/备注
+Stkcd	INTEGER	证券代码	主键
+ShortName	TEXT	证券简称	辅助显示
+Accper	TEXT	会计期间	财报截止日期 (如 2023-12-31)
+Typrep	TEXT	报表类型	筛选 ‘A’ (合并报表)
+A001111000	TEXT	应收账款净额	计算应收账款周转率
+A001123000	TEXT	存货净额	计算速动比率、存货周转率
+A001100000	TEXT	流动资产合计	计算流动比率、速动比率
+A001212000	TEXT	固定资产净额	分析资产构成 (轻/重资产)
+A001218000	TEXT	无形资产净额	分析资产质量
+A001220000	TEXT	商誉净额	“排雷”指标 (商誉占比)
+A001000000	TEXT	资产总计	计算资产周转率、杠杆率
+A002100000	TEXT	流动负债合计	计算流动比率
+A002000000	TEXT	负债合计	计算资产负债率 (杠杆)
+A003101000	TEXT	实收资本(或股本)	计算总市值 (收盘价 * 股本)
+A003100000	TEXT	所有者权益合计	B/P, ROE 的分母 (净资产)
+4. stock_ProfitSheet - 利润表
+这是盈利能力 (Profitability) 和 成长 (Growth) 因子的核心数据源。
+
+列名称 (CSMAR代码)	数据类型	中文含义	核心用途/备注
+Stkcd	INTEGER	证券代码	主键
+ShortName	TEXT	证券简称	辅助显示
+Accper	TEXT	会计期间	财报截止日期
+Typrep	TEXT	报表类型	筛选 ‘A’ (合并报表)
+B001100000	DOUBLE	营业总收入	营收成长、周转率分母
+B001201000	TEXT	营业成本	计算毛利率、存货周转率
+B001209000	TEXT	销售费用	分析费用结构
+B001210000	TEXT	管理费用	分析费用结构
+B001216000	TEXT	研发/财务费用	(需确认) 通常用于计算研发强度
+B001300000	DOUBLE	营业利润	衡量主业盈利能力
+B001000000	DOUBLE	利润总额	税前利润
+B002100000	TEXT	所得税费用	计算有效税率
+B002000101	TEXT	归母净利润	E/P, ROE 的分子 (核心利润)
+5. stock_CashFlowDirect - 现金流量表 (直接法/完整表)
+这是评估利润质量和计算自由现金流的核心数据源。
+
+列名称 (CSMAR代码)	数据类型	中文含义	核心用途/备注
+Stkcd	INTEGER	证券代码	主键
+ShortName	TEXT	证券简称	辅助显示
+Accper	TEXT	会计期间	财报截止日期
+Typrep	TEXT	报表类型	筛选 ‘A’ (合并报表)
+C001000000	TEXT	经营活动现金流净额	核心，衡量造血能力 (CFO)
+C002006000	TEXT	购建长期资产支付	CapEx，计算自由现金流 (FCF)
+C002000000	TEXT	投资活动现金流净额	分析扩张/收缩战略 (CFI)
+C003002000	TEXT	取得借款收到的现金	分析债务融资
+C003005000	TEXT	分配股利/利息支付	衡量股东回报和偿债负担
+C003006000	TEXT	支付其他筹资现金	其他筹资流出
+C003000000	TEXT	筹资活动现金流净额	分析外部融资依赖度 (CFF)

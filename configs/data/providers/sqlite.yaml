@@ -1,0 +1,68 @@
+# SQLite 数据提供者配置
+#
+# 从本地 SQLite 数据库读取数据
+
+# ============================================================================
+# 基础配置
+# ============================================================================
+
+enabled: true
+priority: 1  # 最高优先级
+
+# ============================================================================
+# 数据库连接配置
+# ============================================================================
+
+connection:
+  # 主数据库路径
+  db_path: "./database/JY_database/sqlite/JY_database.sqlite"
+  # 备用数据库路径（可选）
+  backup_db_path: null
+
+# ============================================================================
+# 表配置
+# ============================================================================
+
+tables:
+  # 日线数据表
+  daily:
+    table_name: "JY_t_price_daily"
+    # 列名映射（数据库列名 -> 标准列名）
+    column_mapping:
+      trade_date: date
+      stock_code: symbol
+      open_price: open
+      high_price: high
+      low_price: low
+      close_price: close
+      volume: volume
+      amount: amount
+      adj_factor: adj_factor
+    # 日期格式
+    date_format: "%Y-%m-%d"
+
+  # 财务数据表（可选）
+  financial:
+    table_name: "JY_t_financial"
+    enabled: false
+
+  # 行业分类表（可选）
+  industry:
+    table_name: "JY_t_industry"
+    enabled: true
+    column_mapping:
+      stock_code: symbol
+      industry_code: industry
+
+# ============================================================================
+# 查询配置
+# ============================================================================
+
+query:
+  # 是否使用索引
+  use_index: true
+  # 批量查询大小
+  batch_size: 1000
+  # 是否缓存查询结果
+  cache_results: true
+  cache_ttl: 3600  # 缓存有效期（秒）

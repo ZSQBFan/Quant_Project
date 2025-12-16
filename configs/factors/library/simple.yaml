@@ -1,0 +1,109 @@
+# 简单因子配置
+#
+# 简单因子：使用多进程逐只股票计算的因子
+# 每个因子仅依赖单只股票的历史数据
+
+# ============================================================================
+# 动量类因子
+# ============================================================================
+
+Momentum:
+  category: simple
+  params:
+    period: 20
+  required_columns:
+    - close
+  description: "动量因子 - N日价格变化率"
+  enabled: true
+
+Reversal20D:
+  category: simple
+  params:
+    period: 40
+    decay: 20.0
+  required_columns:
+    - close
+  description: "20日反转因子 - 加权反转"
+  enabled: true
+
+# ============================================================================
+# 技术指标类因子
+# ============================================================================
+
+RSI:
+  category: simple
+  params:
+    rsi_period: 14
+  required_columns:
+    - close
+  description: "相对强弱指数"
+  enabled: true
+
+KDJ:
+  category: simple
+  params:
+    period: 9
+    period_dfast: 3
+    period_dslow: 3
+  required_columns:
+    - high
+    - low
+    - close
+  description: "KDJ指标"
+  enabled: true
+
+BollingerBands:
+  category: simple
+  params:
+    period: 20
+    devfactor: 2.0
+  required_columns:
+    - close
+  description: "布林带指标"
+  enabled: true
+
+MovingAverageCross:
+  category: simple
+  params:
+    short_ma: 14
+    long_ma: 30
+  required_columns:
+    - close
+  description: "均线交叉因子"
+  enabled: true
+
+MACD:
+  category: simple
+  params:
+    fast_ema: 12
+    slow_ema: 26
+    signal_ema: 9
+  required_columns:
+    - close
+  description: "MACD指标"
+  enabled: true
+
+ADXDMI:
+  category: simple
+  params:
+    period: 14
+    trend_threshold: 20
+  required_columns:
+    - high
+    - low
+    - close
+  description: "ADX/DMI趋势因子"
+  enabled: true
+
+# ============================================================================
+# 成交量类因子
+# ============================================================================
+
+VolumeSpike:
+  category: simple
+  params:
+    period: 20
+  required_columns:
+    - volume
+  description: "成交量突增因子"
+  enabled: true

@@ -1,0 +1,79 @@
+# Akshare 数据提供者配置
+#
+# 从 Akshare 开源库获取数据（免费）
+
+# ============================================================================
+# 基础配置
+# ============================================================================
+
+enabled: true
+priority: 3  # 最低优先级（作为备用数据源）
+
+# ============================================================================
+# 数据接口配置
+# ============================================================================
+
+interfaces:
+  # 日线数据
+  daily:
+    function: "stock_zh_a_hist"
+    enabled: true
+    # 列名映射
+    column_mapping:
+      日期: date
+      股票代码: symbol
+      开盘: open
+      最高: high
+      最低: low
+      收盘: close
+      成交量: volume
+      成交额: amount
+    # 额外参数
+    params:
+      period: "daily"
+      adjust: "qfq"
+
+  # 实时行情
+  realtime:
+    function: "stock_zh_a_spot_em"
+    enabled: false
+
+  # 历史分红
+  dividend:
+    function: "stock_history_dividend_detail"
+    enabled: false
+
+  # 沪深300成分股
+  hs300:
+    function: "index_stock_cons_weight_csindex"
+    enabled: true
+    params:
+      symbol: "000300"
+
+# ============================================================================
+# 请求配置
+# ============================================================================
+
+request:
+  # 请求间隔（秒）- Akshare 需要控制频率
+  request_interval: 0.5
+  # 超时时间（秒）
+  timeout: 60
+  # 重试次数
+  max_retries: 5
+  # 重试间隔（秒）
+  retry_delay: 2.0
+  # 每批处理股票数
+  batch_size: 50
+
+# ============================================================================
+# 数据处理配置
+# ============================================================================
+
+processing:
+  # 是否自动转换股票代码格式
+  auto_convert_symbol: true
+  # 股票代码格式 (6位数字)
+  symbol_format: "pure"  # "pure" = "000001", "suffix" = "000001.SZ"
+  # 是否自动填充缺失数据
+  auto_fill: false

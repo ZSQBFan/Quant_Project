@@ -1,54 +1,460 @@
+# ========================================
 # Python
-venv/
+# ========================================
 __pycache__/
-*.pyc
-*.pyo
-.pytest_cache/
-.coverage
-htmlcov/
-*.egg-info/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
 .eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-# 数据库
-database/
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.*
+!.env.example
+.python-version
+.pdm.toml
+.pdm-python
+__pypackages__/
+pdm.lock
+
+# Poetry
+poetry.lock
+.poetry/
+
+# Conda
+*.conda
+conda-meta/
+
+# ========================================
+# Python Tools
+# ========================================
+# Pytest
+.pytest_cache/
+pytest_cache/
+.cache/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+*.py,cover
+
+# Type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# Linting
+.ruff_cache/
+.pylint.d/
+
+# Testing
+.tox/
+.nox/
+nosetests.xml
+test-results/
+test-output/
+.hypothesis/
+
+# Profiling
+*.prof
+*.lprof
+*.pstats
+
+# ========================================
+# Node.js / Frontend
+# ========================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+.yarn/
+.yarn-integrity
+.npmrc
+.yarnrc
+.yarnrc.yml
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ========================================
+# IDEs and Editors
+# ========================================
+# VSCode
+.vscode/
+!.vscode/settings.json.example
+!.vscode/launch.json.example
+*.code-workspace
+
+# JetBrains (PyCharm, IntelliJ)
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Vim/Neovim
+*.swp
+*.swo
+*.swn
+*~
+.vim/
+Session.vim
+.netrwhist
+tags
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# ========================================
+# Operating System
+# ========================================
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+.fseventsd
+.TemporaryItems
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ========================================
+# Data Files
+# ========================================
+# Tabular data
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.parquet
+*.feather
+*.arrow
+
+# HDF5
+*.h5
+*.hdf5
+*.hdf
+*.he5
+
+# Pickle / Serialization
+*.pickle
+*.pkl
+*.joblib
+*.msgpack
+
+# NumPy
+*.npy
+*.npz
+
+# Data directories
+data/raw/
+data/cache/
+data/temp/
+data/processed/
+data/external/
+data/interim/
+datasets/
+*.dataset
+*.sql
 *.db
 *.sqlite
 *.sqlite3
-*.csv
-*.sql
-*.parquet
 
-# 日志和报告
-logs/
-*.log
+# ========================================
+# Machine Learning / AI
+# ========================================
+# Model weights
+*.model
+*.weights
+*.bin
+*.onnx
+*.safetensors
+
+# PyTorch
+*.pt
+*.pth
+*.ckpt
+
+# TensorFlow
+*.pb
+*.tflite
+saved_model/
+
+# Scikit-learn
+*.skl
+
+# LightGBM / XGBoost
+*.lgb
+*.xgb
+*.cbm
+
+# Directories
+checkpoints/
+models/
+mlruns/
+wandb/
+lightning_logs/
+tensorboard_logs/
+
+# ========================================
+# Quantitative Finance Specific
+# ========================================
+# Output directories
+output/
+factor_reports/
+bt_reports/
+backtest_reports/
+data_export/
+reports/
+results/
+temp/
+tmp/
+
+# Trading logs
+trade_logs/
+order_logs/
+execution_logs/
+
+# Factor data
+factor_data/
+factor_cache/
+alpha_cache/
+
+# Performance reports
 *.html
+!templates/*.html
+!static/*.html
 
-# 系统文件
-.DS_Store
-Thumbs.db
-ehthumbs.db
-Desktop.ini
+# ========================================
+# Database
+# ========================================
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-shm
+*.db-wal
+database/*.db
+.mysql_history
+.psql_history
+*.sql.gz
+dump.sql
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# ========================================
+# Logs
+# ========================================
+*.log
+logs/
+log/
+*.out
+*.err
+nohup.out
 
-# 环境文件
-.env
-.env.local
-.env.*.local
+# ========================================
+# Configuration (Sensitive)
+# ========================================
+# Local overrides
+*.local.yaml
+*.local.yml
+*.local.json
+*.local.toml
+config.local.*
+local_config.*
+settings.local.*
 
-# 配置文件
-config.ini
-settings.ini
+# API Keys and Tokens
+.token
+.access_token
+*.token
+api_keys.yaml
+api_keys.json
+tushare_token.txt
+akshare_token.txt
 
-#MCP
-new-mcp-server.yaml
+# Credentials
+secrets.yaml
+secrets.json
+secrets.toml
+credentials.yaml
+credentials.json
+.credentials/
 
-# Backtrader 导出数据
-bt/data_export/*.parquet
+# ========================================
+# Security / Certificates
+# ========================================
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.gpg
+
+# ========================================
+# Docker
+# ========================================
+.docker/
+docker-compose.override.yml
+docker-compose.local.yml
+*.dockerignore
+
+# ========================================
+# Archives
+# ========================================
+*.zip
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.rar
+*.7z
+*.gz
+*.bz2
+*.xz
+
+# ========================================
+# Documentation
+# ========================================
+docs/_build/
+docs/build/
+site/
+_site/
+.docusaurus/
+
+# ========================================
+# Misc
+# ========================================
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.orig
+*.rej
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# Core dumps
+core
+core.*
+
+# Lock files (project specific - uncomment if needed)
+# Pipfile.lock
+
+# pre-commit
+.pre-commit-config.yaml.bak
+
+# direnv
+.envrc
+
+# asdf
+.tool-versions
+
+# ========================================
+# Project Specific Exclusions
+# ========================================
+# Keep example/template files
+!*.example
+!*.template
+!*.sample
+
+# Keep specific config examples
+!configs/**/*.example.yaml
+!.env.example
+
+# Test artifacts (keep test files, ignore outputs)
+test/*.html
+test/output/
+!test/fixtures/
+!test/data/
+
+# ========================================
+# MCP Servers (Claude Code)
+# ========================================
+# Keep MCP server configs but ignore sensitive data
+.continue/mcpServers/*.local.yaml
+.claude/
+

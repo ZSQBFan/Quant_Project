@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 
 # 配置
 from universe_config import UNIVERSE
-from main_analyzer import DATA_PROVIDERS_CONFIG, START_DATE, END_DATE, BACKTEST_DB_PATH
+from old_code.main_analyzer import DATA_PROVIDERS_CONFIG, START_DATE, END_DATE, BACKTEST_DB_PATH
 
 def test_data_export():
     """测试数据导出功能"""

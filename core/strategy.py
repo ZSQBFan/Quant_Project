@@ -53,7 +53,7 @@ class StrategyConfig:
         # 为了让代码能运行，我们将在这里进行实例化，但在一个更严格的框架中，
         # 可能会使用依赖注入或插件系统。
 
-        from strategies.rolling_calculators import RollingICIRCalculator, RollingRegressionCalculator, RollingAITrainer, AdversarialLLMCombiner
+        from factors.pipeline.rolling import RollingICIRCalculator, RollingRegressionCalculator, RollingAITrainer, AdversarialLLMCombiner
 
         if calc_type == 'ICIR':
             config = self.rolling_config.get('FACTOR_WEIGHTING_CONFIG', {})

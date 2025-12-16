@@ -1,0 +1,146 @@
+# 复合因子配置
+#
+# 复合因子：使用全量宽表向量化计算的因子
+# 这类因子需要跨股票数据（如行业中性处理）
+
+# ============================================================================
+# 行业中性动量因子
+# ============================================================================
+
+IndNeu_Momentum:
+  category: complex
+  params:
+    period: 20
+  required_columns:
+    - close
+    - industry
+  description: "行业中性动量因子"
+  enabled: true
+
+IndNeu_Reversal20D:
+  category: complex
+  params: {}
+  required_columns:
+    - close
+    - industry
+  description: "行业中性反转因子"
+  enabled: true
+
+# ============================================================================
+# 行业中性成交量因子
+# ============================================================================
+
+IndNeu_VolumeCV:
+  category: complex
+  params: {}
+  required_columns:
+    - volume
+    - industry
+  description: "行业中性成交量变异系数"
+  enabled: true
+
+# ============================================================================
+# 行业中性估值因子
+# ============================================================================
+
+IndNeu_EP:
+  category: complex
+  params: {}
+  required_columns:
+    - close
+    - share_capital
+    - net_profit_parent
+    - industry
+  description: "行业中性市盈率倒数 (E/P)"
+  enabled: true
+
+IndNeu_BP:
+  category: complex
+  params: {}
+  required_columns:
+    - close
+    - share_capital
+    - total_equity_parent
+    - industry
+  description: "行业中性市净率倒数 (B/P)"
+  enabled: true
+
+# ============================================================================
+# 行业中性盈利因子
+# ============================================================================
+
+IndNeu_ROE:
+  category: complex
+  params: {}
+  required_columns:
+    - net_profit_parent
+    - total_equity_parent
+    - industry
+  description: "行业中性净资产收益率 (ROE)"
+  enabled: false  # 默认禁用
+
+IndNeu_GPM:
+  category: complex
+  params: {}
+  required_columns:
+    - total_revenue
+    - cost_of_goods_sold
+    - industry
+  description: "行业中性毛利率 (Gross Profit Margin)"
+  enabled: true
+
+# ============================================================================
+# 行业中性成长因子
+# ============================================================================
+
+IndNeu_SalesGrowth:
+  category: complex
+  params: {}
+  required_columns:
+    - total_revenue
+    - industry
+  description: "行业中性营收同比增长率 (YoY)"
+  enabled: true
+
+# ============================================================================
+# 行业中性现金流因子
+# ============================================================================
+
+IndNeu_CFOP:
+  category: complex
+  params: {}
+  required_columns:
+    - net_cash_flow_ops
+    - close
+    - share_capital
+    - industry
+  description: "行业中性经营现金流市价率 (CFO/P)"
+  enabled: true
+
+# ============================================================================
+# 行业中性运营效率因子
+# ============================================================================
+
+IndNeu_AssetTurnover:
+  category: complex
+  params: {}
+  required_columns:
+    - total_revenue
+    - total_assets
+    - industry
+  description: "行业中性总资产周转率"
+  enabled: false  # 默认禁用
+
+# ============================================================================
+# 行业中性偿债能力因子
+# ============================================================================
+
+IndNeu_CurrentRatio:
+  category: complex
+  params: {}
+  required_columns:
+    - current_assets
+    - current_liabilities
+    - industry
+  description: "行业中性流动比率 (偿债能力)"
+  enabled: false  # 默认禁用

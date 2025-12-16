@@ -1,0 +1,98 @@
+# Tushare 数据提供者配置
+#
+# 从 Tushare Pro API 获取数据
+
+# ============================================================================
+# 基础配置
+# ============================================================================
+
+enabled: true
+priority: 2
+
+# ============================================================================
+# API 配置
+# ============================================================================
+
+api:
+  # Tushare Pro Token（请替换为实际token，或使用环境变量）
+  # 也可以设置环境变量 TUSHARE_TOKEN
+  token: "${TUSHARE_TOKEN}"
+  # API 基础URL
+  base_url: "http://api.tushare.pro"
+  # 每分钟请求次数限制
+  rate_limit: 500
+
+# ============================================================================
+# 数据接口配置
+# ============================================================================
+
+interfaces:
+  # 日线数据
+  daily:
+    api_name: "daily"
+    enabled: true
+    # 列名映射
+    column_mapping:
+      trade_date: date
+      ts_code: symbol
+      open: open
+      high: high
+      low: low
+      close: close
+      vol: volume
+      amount: amount
+    # 额外参数
+    params:
+      adj: "qfq"  # 前复权
+
+  # 复权因子
+  adj_factor:
+    api_name: "adj_factor"
+    enabled: true
+    column_mapping:
+      trade_date: date
+      ts_code: symbol
+      adj_factor: adj_factor
+
+  # 股票基础信息
+  stock_basic:
+    api_name: "stock_basic"
+    enabled: true
+    params:
+      exchange: ""
+      list_status: "L"
+
+  # 行业分类
+  industry:
+    api_name: "stock_basic"
+    enabled: true
+    column_mapping:
+      ts_code: symbol
+      industry: industry
+
+  # 财务数据
+  income:
+    api_name: "income"
+    enabled: false
+
+  balance:
+    api_name: "balancesheet"
+    enabled: false
+
+  cashflow:
+    api_name: "cashflow"
+    enabled: false
+
+# ============================================================================
+# 请求配置
+# ============================================================================
+
+request:
+  # 超时时间（秒）
+  timeout: 30
+  # 重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_delay: 1.0
+  # 批量请求大小
+  batch_size: 100
