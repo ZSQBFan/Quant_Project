@@ -7,7 +7,7 @@
 from .base import RollingCalculatorBase
 from .rolling_icir import RollingICIRCalculator
 from .rolling_regression import RollingRegressionCalculator
-from .ai_combiner import RollingAITrainer, AdversarialLLMCombiner
+from .ai_combiner import RollingAITrainer, AdversarialLLMCombiner, StaticAICombiner
 
 __all__ = [
     'RollingCalculatorBase',
@@ -15,4 +15,5 @@ __all__ = [
     'RollingRegressionCalculator',
     'RollingAITrainer',
     'AdversarialLLMCombiner',
+    'StaticAICombiner',
 ]

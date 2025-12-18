@@ -1,13 +1,18 @@
-"""AI模型合成器"""
+"""静态 AI 模型合成器"""
 import pandas as pd
 import logging
 import joblib
 from typing import Any
-from .base import BaseFactorCombiner
+from ...base import BaseFactorCombiner
 from core.registry import register_combiner
 
-@register_combiner('AICombiner', description='AI模型合成策略')
-class AICombiner(BaseFactorCombiner):
+@register_combiner('StaticAICombiner', description='静态 AI 模型合成策略')
+class StaticAICombiner(BaseFactorCombiner):
+    """
+    静态 AI 模型合成器。
+    
+    加载预训练好的模型进行因子合成，不进行在线训练。
+    """
     def __init__(self, initial_model_path: str = None, **kwargs):
         self.model = None
         if initial_model_path:
@@ -31,5 +36,5 @@ class AICombiner(BaseFactorCombiner):
             X_today = standardized_df[features]
             return pd.Series(self.model.predict(X_today), index=X_today.index)
         except Exception as e:
-            logging.error(f"❌ [AICombiner] 预测失败: {e}")
+            logging.error(f"❌ [StaticAICombiner] 预测失败: {e}")
             return pd.Series(0, index=standardized_df.index)

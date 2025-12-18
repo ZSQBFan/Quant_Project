@@ -68,7 +68,7 @@ RollingRegression:
 # ============================================================================
 
 LightGBM_Periodic:
-  combiner: AICombiner
+  combiner: StaticAICombiner
   combiner_params:
     initial_model_path: null  # 首次训练为null，后续可指定路径
   standardizer: ZScore

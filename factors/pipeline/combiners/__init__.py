@@ -4,13 +4,13 @@ from .equal_weight import EqualWeightCombiner
 from .fixed_weight import FixedWeightCombiner
 from .dynamic_weight import DynamicWeightCombiner
 from .dynamic_significance import DynamicSignificanceCombiner
-from .ai_combiner import AICombiner
 from .rolling import (
     RollingCalculatorBase,
     RollingICIRCalculator,
     RollingRegressionCalculator,
     RollingAITrainer,
     AdversarialLLMCombiner,
+    StaticAICombiner,
 )
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
     'FixedWeightCombiner',
     'DynamicWeightCombiner',
     'DynamicSignificanceCombiner',
-    'AICombiner',
+    'StaticAICombiner',
     # Rolling combiners
     'RollingCalculatorBase',
     'RollingICIRCalculator',
