@@ -18,28 +18,38 @@ def _calculate_spearman_for_group(group: pd.DataFrame,
     """计算单个分组的斯皮尔曼秩相关系数。"""
     global _spearman_warning_shown
 
+    # 获取当前组的日期（假设索引中包含 date）
+    try:
+        current_date = group.index.get_level_values('date')[0]
+        if hasattr(current_date, 'strftime'):
+            date_str = current_date.strftime('%Y-%m-%d')
+        else:
+            date_str = str(current_date)
+    except Exception:
+        date_str = "未知日期"
+
     # 检查列是否存在
     if 'factor_value' not in group.columns:
         if not _spearman_warning_shown:
-            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 组中没有 'factor_value' 列，列: {group.columns.tolist()}")
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] [{date_str}] 组中没有 'factor_value' 列，列: {group.columns.tolist()}")
             _spearman_warning_shown = True
         return float('nan')
     if return_col not in group.columns:
         if not _spearman_warning_shown:
-            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 组中没有 '{return_col}' 列，列: {group.columns.tolist()}")
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] [{date_str}] 组中没有 '{return_col}' 列，列: {group.columns.tolist()}")
             _spearman_warning_shown = True
         return float('nan')
 
     if len(group['factor_value']) < 2 or len(group[return_col]) < 2:
         if not _spearman_warning_shown:
-            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 数据点不足: factor_value={len(group['factor_value'])}, {return_col}={len(group[return_col])}")
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] [{date_str}] 数据点不足: factor_value={len(group['factor_value'])}, {return_col}={len(group[return_col])}")
             _spearman_warning_shown = True
         return float('nan')
 
     # 检查输入是否为常量，避免ConstantInputWarning
     if group['factor_value'].nunique() <= 1 or group[return_col].nunique() <= 1:
         if not _spearman_warning_shown:
-            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 数据为常量: factor_value唯一值={group['factor_value'].nunique()}, {return_col}唯一值={group[return_col].nunique()}")
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] [{date_str}] 数据为常量: factor_value唯一值={group['factor_value'].nunique()}, {return_col}唯一值={group[return_col].nunique()}")
             _spearman_warning_shown = True
         return float('nan')
 

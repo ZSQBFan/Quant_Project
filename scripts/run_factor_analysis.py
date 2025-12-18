@@ -510,6 +510,32 @@ def run_factor_analysis(config_loader):
                             factor_weight_config=rolling_config.get('factor_weighting_config', {}),
                             forward_return_periods=FORWARD_RETURN_PERIODS
                         )
+                    elif calculator_type == 'AI_Trainer':
+                        from factors.pipeline.combiners.rolling import RollingAITrainer
+                        from factors.pipeline.combiners.rolling.ai_combiner import LightGBMTrainer
+
+                        # 获取训练器配置
+                        trainer_class_name = rolling_config.get('trainer_class', 'LightGBMTrainer')
+                        trainer_params = rolling_config.get('trainer_params', {})
+                        target_return_period = trainer_params.get('target_return_period', 30)
+                        model_params = trainer_params.get('model_params', {})
+
+                        # 创建训练器实例
+                        if trainer_class_name == 'LightGBMTrainer':
+                            trainer = LightGBMTrainer(
+                                target_return_period=target_return_period,
+                                model_params=model_params
+                            )
+                        else:
+                            raise ValueError(f"未知的 trainer_class: {trainer_class_name}")
+
+                        # 创建滚动 AI 训练器
+                        roller = RollingAITrainer(
+                            training_calculator=trainer,
+                            factor_names=FACTOR_NAMES,
+                            rolling_window_days=rolling_config.get('rolling_window_days', 250),
+                            rebalance_frequency=rolling_config.get('rebalance_frequency', 'MS')
+                        )
                     else:
                         raise ValueError(f"未知的 calculator_type: {calculator_type}")
 

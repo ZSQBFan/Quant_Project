@@ -17,6 +17,9 @@ from .bp import IndNeuBPFactor
 from .sales_growth import IndNeuSalesGrowthFactor
 from .cfop import IndNeuCFOPFactor
 from .gpm import IndNeuGPMFactor
+from .roe import IndNeuROEFactor
+from .asset_turnover import IndNeuAssetTurnoverFactor
+from .current_ratio import IndNeuCurrentRatioFactor
 
 __all__ = [
     'IndustryNeutralFactorBase',
@@ -28,4 +31,7 @@ __all__ = [
     'IndNeuSalesGrowthFactor',
     'IndNeuCFOPFactor',
     'IndNeuGPMFactor',
+    'IndNeuROEFactor',
+    'IndNeuAssetTurnoverFactor',
+    'IndNeuCurrentRatioFactor',
 ]
