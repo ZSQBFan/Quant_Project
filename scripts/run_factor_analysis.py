@@ -78,98 +78,59 @@ def run_factor_analysis(config_loader):
 
     # 检查是否启用全股票模式
     if data_config.use_all_stocks:
-        logger.info("🎯 启用全股票模式，将从数据源获取全部股票代码...")
-        
-        # 获取数据提供者配置
-        providers_config = config_loader.load_providers()
-        
-        # 按优先级尝试获取全部股票代码
-        all_symbols = []
-        provider_used = None
-        
-        for provider_name in data_config.provider_priority:
-            if provider_name in providers_config and providers_config[provider_name].enabled:
-                provider_config = providers_config[provider_name]
-                
-                try:
-                    # 动态导入数据提供者类
-                    if provider_name.startswith('sqlite'):
-                        from data.providers import SQLiteDataProvider
-                        provider_class = SQLiteDataProvider
-                    elif provider_name == 'tushare':
-                        from data.providers import TushareDataProvider
-                        provider_class = TushareDataProvider
-                    elif provider_name == 'akshare':
-                        from data.providers import AkshareDataProvider
-                        provider_class = AkshareDataProvider
-                    else:
-                        logger.warning(f"未知的数据提供者: {provider_name}")
-                        continue
-                    
-                    # 创建提供者实例
-                    provider_kwargs = provider_config.config.copy()
-                    
-                    # 处理特殊配置
-                    if provider_name == 'tushare' and 'token' not in provider_kwargs:
-                        # 如果是tushare且没有配置token，尝试从环境变量获取
-                        provider_kwargs['token'] = os.getenv('TUSHARE_TOKEN')
-                        if not provider_kwargs['token']:
-                            logger.warning("Tushare需要token配置，跳过...")
-                            continue
-                    elif provider_name.startswith('sqlite'):
-                        # SQLite需要特殊的配置处理
-                        if 'connection' in provider_kwargs and 'tables' in provider_kwargs:
-                            conn_config = provider_kwargs['connection']
-                            tables_config = provider_kwargs['tables']
-                            daily_config = tables_config.get('daily', {})
-                            
-                            provider_kwargs = {
-                                'db_path': conn_config.get('db_path'),
-                                'table_name': daily_config.get('table_name'),
-                                'column_mapping': daily_config.get('column_mapping', {})
-                            }
-                    
-                    provider_instance = provider_class(**provider_kwargs)
-                    
-                    # 智能选择目标日期
-                    target_date = None
-                    if provider_name.startswith('sqlite'):
-                        # 对于数据库，使用开始日期避免幸存者偏差
-                        target_date = START_DATE
-                        logger.info(f"[全股票模式] 使用开始日期 {target_date} 以避免幸存者偏差")
-                    else:
-                        # 对于外部数据源，使用当前日期
-                        logger.info(f"[全股票模式] {provider_name} 不支持历史查询，使用当前日期")
-                    
-                    # 获取全部股票代码
-                    logger.info(f"[全股票模式] 尝试使用 {provider_name} 获取全部股票代码...")
-                    all_symbols = provider_instance.get_all_symbols(target_date)
-                    
-                    if all_symbols:
-                        provider_used = provider_name
-                        logger.info(f"[全股票模式] 成功从 {provider_name} 获取到 {len(all_symbols)} 只股票")
-                        break
-                    else:
-                        logger.warning(f"[全股票模式] {provider_name} 未返回任何股票代码")
-                        
-                except Exception as e:
-                    logger.error(f"[全股票模式] 使用 {provider_name} 获取股票代码失败: {e}")
-                    continue
-        
-        if not all_symbols:
+        logger.info("🎯 启用全股票模式，将从缓存数据库获取全部股票代码...")
+
+        # 直接从缓存数据库 quant_data.db 获取股票列表，实现模块分离
+        import sqlite3
+
+        try:
+            conn = sqlite3.connect(DB_PATH)
+
+            # 查询缓存数据库中的所有股票代码
+            query = f"""
+                SELECT DISTINCT code
+                FROM stock_daily_prices
+                WHERE date BETWEEN '{START_DATE}' AND '{END_DATE}'
+            """
+            cursor = conn.execute(query)
+            all_symbols = [row[0] for row in cursor.fetchall()]
+
+            if all_symbols:
+                universe = all_symbols
+                logger.info(f"[全股票模式] ✅ 从缓存数据库获取成功！")
+                logger.info(f"  - 股票数量: {len(universe)}")
+
+                # 获取数据统计信息
+                stats_query = f"""
+                    SELECT COUNT(*) as total_records,
+                           COUNT(DISTINCT date) as date_count
+                    FROM stock_daily_prices
+                    WHERE date BETWEEN '{START_DATE}' AND '{END_DATE}'
+                """
+                stats_cursor = conn.execute(stats_query)
+                stats = stats_cursor.fetchone()
+                logger.info(f"  - 总记录数: {stats[0]}")
+                logger.info(f"  - 日期数量: {stats[1]}")
+            else:
+                error_msg = (
+                    "全股票模式启用但缓存数据库中没有数据。请检查：\n"
+                    f"1. 缓存数据库路径是否正确: {DB_PATH}\n"
+                    "2. 是否已运行 --download_data 模式下载数据\n"
+                    f"3. 日期范围是否正确: {START_DATE} ~ {END_DATE}"
+                )
+                logger.critical(error_msg)
+                raise RuntimeError(error_msg)
+
+            conn.close()
+            logger.info(f"✅ 全股票模式成功，已从缓存数据库获取股票池: {len(universe)} 只股票")
+
+        except sqlite3.Error as e:
             error_msg = (
-                "全股票模式启用但无法获取股票代码。请检查：\n"
-                "1. 数据源配置是否正确\n"
-                "2. 网络连接是否正常\n"
-                "3. API密钥是否有效（如Tushare）\n"
-                "4. 至少有一个数据源可用"
+                f"从缓存数据库获取股票列表失败: {e}\n"
+                f"请确保缓存数据库存在: {DB_PATH}"
             )
             logger.critical(error_msg)
             raise RuntimeError(error_msg)
-        
-        # 替换股票池
-        universe = all_symbols
-        logger.info(f"✅ 全股票模式成功，已替换股票池: {provider_used} -> {len(universe)} 只股票")
     else:
         logger.info(f"📋 使用配置文件股票池，共 {len(universe)} 只股票")
 
@@ -229,7 +190,8 @@ def run_factor_analysis(config_loader):
                 processed_kwargs = {
                     'db_path': conn_config.get('db_path'),
                     'table_name': daily_config.get('table_name'),
-                    'column_mapping': daily_config.get('column_mapping', {})
+                    'column_mapping': daily_config.get('column_mapping', {}),
+                    'date_format': daily_config.get('date_format', '%Y-%m-%d')
                 }
                 
                 # 使用名称标识符作为元组的第一个元素

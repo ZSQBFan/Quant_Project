@@ -85,7 +85,7 @@ enabled_factors:
 # LLM策略:
 #   - AdversarialLLM      : 对抗式LLM优化 - 使用大语言模型辅助权重调整
 
-default_strategy: RollingICIR
+default_strategy: FixedWeights
 
 # ============================================================================
 # 标准化配置

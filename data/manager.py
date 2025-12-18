@@ -209,9 +209,11 @@ class DataProviderManager:
                     
                     # 为SQLite提供者添加特殊处理
                     if cls.__name__ == 'SQLiteDataProvider':
-                        # 确保SQLite提供者使用正确的名称标识
+                        # 确保SQLite提供者使用正确的名称标识（如 sqlite_csmr 或 sqlite_jy）
+                        # 这样可以同时存在多个指向不同数据库文件的 SQLiteDataProvider 实例
                         instance_name = f"{provider_name}_{id(cls)}"
                         if instance_name not in self._local.providers:
+                            logging.info(f"[DataManager] 实例化 SQLite 提供者: {provider_name} -> {kwargs.get('db_path')}")
                             self._local.providers[instance_name] = cls(**kwargs)
                         self._local.providers[name] = self._local.providers[instance_name]
                     else:
