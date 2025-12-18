@@ -46,7 +46,102 @@ def run_backtest(config_loader):
     OUTPUT_DIR = backtest_config.output.get('dir', DEFAULT_CONFIG['output_dir'])
     BT_DATA_DIR = DEFAULT_CONFIG['bt_data_dir']
 
-    logger.info(f"股票池大小: {len(universe)}")
+    # 检查是否启用全股票模式
+    if data_config.use_all_stocks:
+        logger.info("🎯 启用全股票模式，将从数据源获取全部股票代码...")
+        
+        # 按优先级尝试获取全部股票代码
+        all_symbols = []
+        provider_used = None
+        
+        for provider_name in data_config.provider_priority:
+            if provider_name in providers_config and providers_config[provider_name].enabled:
+                provider_config = providers_config[provider_name]
+                
+                try:
+                    # 动态导入数据提供者类
+                    if provider_name == 'sqlite':
+                        from data.providers import SQLiteDataProvider
+                        provider_class = SQLiteDataProvider
+                    elif provider_name == 'tushare':
+                        from data.providers import TushareDataProvider
+                        provider_class = TushareDataProvider
+                    elif provider_name == 'akshare':
+                        from data.providers import AkshareDataProvider
+                        provider_class = AkshareDataProvider
+                    else:
+                        logger.warning(f"未知的数据提供者: {provider_name}")
+                        continue
+                    
+                    # 创建提供者实例
+                    provider_kwargs = provider_config.config.copy()
+                    
+                    # 处理特殊配置
+                    if provider_name == 'tushare' and 'token' not in provider_kwargs:
+                        # 如果是tushare且没有配置token，尝试从环境变量获取
+                        import os
+                        provider_kwargs['token'] = os.getenv('TUSHARE_TOKEN')
+                        if not provider_kwargs['token']:
+                            logger.warning("Tushare需要token配置，跳过...")
+                            continue
+                    elif provider_name == 'sqlite':
+                        # SQLite需要特殊的配置处理
+                        if 'connection' in provider_kwargs and 'tables' in provider_kwargs:
+                            conn_config = provider_kwargs['connection']
+                            tables_config = provider_kwargs['tables']
+                            daily_config = tables_config.get('daily', {})
+                            
+                            provider_kwargs = {
+                                'db_path': conn_config.get('db_path'),
+                                'table_name': daily_config.get('table_name', 'JY_t_price_daily'),
+                                'column_mapping': daily_config.get('column_mapping', {})
+                            }
+                    
+                    provider_instance = provider_class(**provider_kwargs)
+                    
+                    # 智能选择目标日期
+                    target_date = None
+                    if provider_name in ['sqlite']:
+                        # 对于数据库，使用开始日期避免幸存者偏差
+                        target_date = START_DATE
+                        logger.info(f"[全股票模式] 使用开始日期 {target_date} 以避免幸存者偏差")
+                    else:
+                        # 对于外部数据源，使用当前日期
+                        logger.info(f"[全股票模式] {provider_name} 不支持历史查询，使用当前日期")
+                    
+                    # 获取全部股票代码
+                    logger.info(f"[全股票模式] 尝试使用 {provider_name} 获取全部股票代码...")
+                    all_symbols = provider_instance.get_all_symbols(target_date)
+                    
+                    if all_symbols:
+                        provider_used = provider_name
+                        logger.info(f"[全股票模式] 成功从 {provider_name} 获取到 {len(all_symbols)} 只股票")
+                        break
+                    else:
+                        logger.warning(f"[全股票模式] {provider_name} 未返回任何股票代码")
+                        
+                except Exception as e:
+                    logger.error(f"[全股票模式] 使用 {provider_name} 获取股票代码失败: {e}")
+                    continue
+        
+        if not all_symbols:
+            error_msg = (
+                "全股票模式启用但无法获取股票代码。请检查：\n"
+                "1. 数据源配置是否正确\n"
+                "2. 网络连接是否正常\n"
+                "3. API密钥是否有效（如Tushare）\n"
+                "4. 至少有一个数据源可用"
+            )
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # 替换股票池
+        universe = all_symbols
+        logger.info(f"✅ 全股票模式成功，已替换股票池: {provider_used} -> {len(universe)} 只股票")
+    else:
+        logger.info(f"📋 使用配置文件股票池，共 {len(universe)} 只股票")
+
+    logger.info(f"最终股票池大小: {len(universe)}")
     logger.info(f"日期范围: {START_DATE} ~ {END_DATE}")
     logger.info(f"初始资金: {INITIAL_CASH:,.2f}")
     logger.info(f"手续费率: {COMMISSION}")
@@ -76,25 +171,27 @@ def run_backtest(config_loader):
     if sqlite_cfg and sqlite_cfg.enabled:
         conn_cfg = sqlite_cfg.config.get('connection', {})
         tables_cfg = sqlite_cfg.config.get('tables', {}).get('daily', {})
-        DATA_PROVIDERS_CONFIG.append((
-            SQLiteDataProvider,
-            {
-                'db_path': conn_cfg.get('db_path', './database/JY_database/sqlite/JY_database.sqlite'),
-                'table_name': tables_cfg.get('table_name', 'JY_t_price_daily')
-            }
-        ))
+        
+        # 应用完整的配置处理逻辑，包括column_mapping
+        processed_kwargs = {
+            'db_path': conn_cfg.get('db_path'),
+            'table_name': tables_cfg.get('table_name', 'JY_t_price_daily'),
+            'column_mapping': tables_cfg.get('column_mapping', {})
+        }
+        
+        DATA_PROVIDERS_CONFIG.append((SQLiteDataProvider, processed_kwargs))
+        logger.info(f"✅ SQLite数据提供者配置已从配置文件加载: db_path={processed_kwargs['db_path']}")
 
-    # 如果没有配置，使用默认值
+    # 如果没有配置，抛出异常
     if not DATA_PROVIDERS_CONFIG:
-        DATA_PROVIDERS_CONFIG = [
-            (
-                SQLiteDataProvider,
-                {
-                    'db_path': './database/JY_database/sqlite/JY_database.sqlite',
-                    'table_name': 'JY_t_price_daily'
-                }
-            ),
-        ]
+        error_msg = (
+            "无法创建SQLite数据提供者。请检查：\n"
+            "1. 配置文件 configs/data/providers/sqlite.yaml 是否正确\n"
+            "2. SQLite配置是否启用\n"
+            "3. 配置格式是否正确"
+        )
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
 
     # 获取下载配置
     download_cfg = data_config.download

@@ -166,7 +166,7 @@ class DataProviderManager:
 
         # 尝试从 provider_configs 获取 tushare token
         tushare_token = None
-        for cls, kwargs in self.provider_configs:
+        for provider_name, cls, kwargs in self.provider_configs:
             if cls.__name__ in ['TushareDataProvider', 'TushareTradingCalendar']:
                 tushare_token = kwargs.get('token')
                 break
@@ -197,9 +197,25 @@ class DataProviderManager:
             self._local.providers = {}
 
         if name not in self._local.providers:
-            for cls, kwargs in self.provider_configs:
-                if cls.__name__ == name or (name == 'sqlite' and cls.__name__ == 'SQLiteDataProvider'):
-                    self._local.providers[name] = cls(**kwargs)
+            for provider_name, cls, kwargs in self.provider_configs:
+                # 支持多种名称匹配方式：
+                # 1. 直接匹配provider_name
+                # 2. 匹配cls.__name__（向后兼容）
+                # 3. 特殊处理sqlite相关的名称
+                if (provider_name == name or
+                    cls.__name__ == name or
+                    (name == 'sqlite' and provider_name.startswith('sqlite')) or
+                    (name.startswith('sqlite') and provider_name.startswith('sqlite'))):
+                    
+                    # 为SQLite提供者添加特殊处理
+                    if cls.__name__ == 'SQLiteDataProvider':
+                        # 确保SQLite提供者使用正确的名称标识
+                        instance_name = f"{provider_name}_{id(cls)}"
+                        if instance_name not in self._local.providers:
+                            self._local.providers[instance_name] = cls(**kwargs)
+                        self._local.providers[name] = self._local.providers[instance_name]
+                    else:
+                        self._local.providers[name] = cls(**kwargs)
                     break
         return self._local.providers.get(name)
 
@@ -583,7 +599,18 @@ class DataProviderManager:
             start, end = ranges[0]
 
             df = None
-            provider_names = ['SQLiteDataProvider', 'TushareDataProvider', 'AkshareDataProvider']
+            
+            # 动态构建提供者名称列表，包括提供者名称和类名
+            provider_names = []
+            for provider_name, cls, kwargs in self.provider_configs:
+                # 添加提供者名称
+                provider_names.append(provider_name)
+                # 添加类名（向后兼容）
+                provider_names.append(cls.__name__)
+            
+            # 去重并按优先级排序
+            provider_names = list(dict.fromkeys(provider_names))
+            
             for provider_name in provider_names:
                 provider = self._get_provider(provider_name)
                 if provider:
@@ -674,3 +701,35 @@ class DataProviderManager:
     def __del__(self):
         if hasattr(self, 'db_handler'):
             self.db_handler.close_connection()
+
+    def __getstate__(self):
+        """
+        Pickle序列化时排除无法序列化的对象。
+        
+        Returns:
+            dict: 排除无法序列化对象后的状态字典
+        """
+        state = self.__dict__.copy()
+        # 排除无法被pickle序列化的对象
+        state.pop('_local', None)  # threading.local对象
+        state.pop('producers_finished_event', None)  # threading.Event对象
+        state.pop('symbols_queue', None)  # queue.Queue对象
+        state.pop('download_tasks_queue', None)  # queue.Queue对象
+        state.pop('results_queue', None)  # queue.Queue对象
+        state.pop('check_progress_bar', None)  # tqdm对象
+        state.pop('download_progress_bar', None)  # tqdm对象
+        return state
+
+    def __setstate__(self, state):
+        """
+        Pickle反序列化时重建必要的对象。
+        
+        Args:
+            state: 从pickle加载的状态字典
+        """
+        self.__dict__.update(state)
+        # 在新进程中重建无法序列化的对象
+        self._local = threading.local()
+        self.producers_finished_event = threading.Event()
+        # 注意：queue.Queue和进度条对象不重建，因为它们只在数据下载流程中使用
+        # 在因子计算场景中，这些对象不会被使用

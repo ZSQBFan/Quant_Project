@@ -7,6 +7,7 @@
 import pandas as pd
 import logging
 import json
+import re
 import requests
 from typing import Any, Dict, List
 
@@ -214,6 +215,10 @@ class AdversarialLLMCombiner(RollingCalculatorBase):
                 ]
                 if forward_cols:
                     return_col = forward_cols[0]
+                    # 从列名中提取实际的周期数，如 'forward_return_5d' -> 5
+                    match = re.search(r'forward_return_(\d+)d', return_col)
+                    if match:
+                        return_period = int(match.group(1))
                 else:
                     continue
 

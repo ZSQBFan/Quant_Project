@@ -6,8 +6,6 @@
 
 import platform
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib
 import base64
 from io import BytesIO
 from scipy.stats import linregress
@@ -15,21 +13,38 @@ import logging
 
 from . import metrics
 
-# 设置 Matplotlib 字体以支持中文
-try:
-    system = platform.system()
-    if system == "Darwin":  # macOS
-        matplotlib.rcParams['font.sans-serif'] = [
-            'PingFang SC', 'Arial Unicode MS'
-        ]
-    elif system == "Windows":
-        matplotlib.rcParams['font.sans-serif'] = ['SimHei']
-    else:  # Linux 或其他系统
-        matplotlib.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei']
-    matplotlib.rcParams['axes.unicode_minus'] = False
-    logging.info("ℹ️ Matplotlib 字体已配置，支持中文显示。")
-except Exception as e:
-    logging.warning(f"⚠️ Matplotlib 字体配置失败，图表中的中文可能显示为方框: {e}")
+# 延迟初始化标志
+_matplotlib_configured = False
+
+
+def _configure_matplotlib():
+    """
+    延迟配置 Matplotlib 字体以支持中文。
+    只在真正需要绑图时才执行，避免子进程重复初始化。
+    """
+    global _matplotlib_configured
+    if _matplotlib_configured:
+        return
+
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    try:
+        system = platform.system()
+        if system == "Darwin":  # macOS
+            matplotlib.rcParams['font.sans-serif'] = [
+                'PingFang SC', 'Arial Unicode MS'
+            ]
+        elif system == "Windows":
+            matplotlib.rcParams['font.sans-serif'] = ['SimHei']
+        else:  # Linux 或其他系统
+            matplotlib.rcParams['font.sans-serif'] = ['WenQuanYi Micro Hei']
+        matplotlib.rcParams['axes.unicode_minus'] = False
+        logging.debug("Matplotlib 字体已配置，支持中文显示。")
+    except Exception as e:
+        logging.warning(f"Matplotlib 字体配置失败，图表中的中文可能显示为方框: {e}")
+
+    _matplotlib_configured = True
 
 
 class FactorReport:
@@ -51,11 +66,14 @@ class FactorReport:
             forward_return_periods: 远期收益计算周期列表
             benchmark_data: 基准数据（可选）
         """
+        # 延迟配置 matplotlib（仅在真正需要绑图时执行）
+        _configure_matplotlib()
+
         self.factor_name = factor_name
         self.factor_data = factor_data
         self.periods = forward_return_periods
         self.results = {}
-        logging.info(f"ℹ️ FactorReport for '{self.factor_name}' 已初始化。")
+        logging.info(f"FactorReport for '{self.factor_name}' 已初始化。")
 
         # 如果传入了基准数据，计算其日收益率并储存
         self.benchmark_returns = None
@@ -104,6 +122,8 @@ class FactorReport:
         """
         将 matplotlib 图像转换为 base64 编码的字符串，用于嵌入HTML。
         """
+        import matplotlib.pyplot as plt
+
         buf = BytesIO()
         fig.savefig(buf, format='png', bbox_inches='tight')
         buf.seek(0)
@@ -115,6 +135,8 @@ class FactorReport:
         """
         绘制IC序列图和IC分布直方图。
         """
+        import matplotlib.pyplot as plt
+
         logging.debug(f"    > 🎨 正在绘制 {period}d IC 摘要图...")
         ic_series = self.results[period]['ic_series']
         fig, axes = plt.subplots(2, 1, figsize=(12, 8))
@@ -142,6 +164,8 @@ class FactorReport:
         """
         绘制分层收益条形图。
         """
+        import matplotlib.pyplot as plt
+
         logging.debug(f"    > 🎨 正在绘制 {period}d 分层收益图...")
         quantile_returns = self.results[period]['quantile_returns']
 
@@ -174,6 +198,8 @@ class FactorReport:
         """
         绘制基于重叠组合的多空策略近似累计收益曲线。
         """
+        import matplotlib.pyplot as plt
+
         logging.debug(f"    > 🎨 正在为 {period}d 周期绘制近似累计收益图...")
 
         return_col = f'forward_return_{period}d'
@@ -248,6 +274,8 @@ class FactorReport:
         """
         绘制因子百分位排名 vs. 远期收益率的 Hexbin 密度图。
         """
+        import matplotlib.pyplot as plt
+
         logging.debug(f"    > 🎨 正在绘制 {period}d 因子排名-收益率 Hexbin 图...")
 
         return_col = f'forward_return_{period}d'

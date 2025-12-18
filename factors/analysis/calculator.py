@@ -120,17 +120,21 @@ class FactorCalculator:
 
             # 检查是否是类（新注册表系统）还是函数（旧系统）
             if isinstance(self._factor_func, type):
-                # 新系统：实例化因子类并调用 compute 方法
-                factor_instance = self._factor_func(**self.factor_params)
-                factor_series = factor_instance.compute(df)
+                # 新系统：实例化因子类并调用 calculate 方法
+                factor_instance = self._factor_func(params=self.factor_params)
+                factor_series = factor_instance.calculate(df)
             else:
                 # 旧系统：直接调用函数
                 factor_series = self._factor_func(df, **self.factor_params)
 
+            # 创建结果 DataFrame，保留 factor_series 的 index（即 date）作为列
             result_df = pd.DataFrame({
                 'asset': symbol,
                 'factor_value': factor_series
-            }).dropna()
+            })
+            result_df.index.name = 'date'
+            result_df = result_df.reset_index()
+            result_df = result_df.dropna(subset=['factor_value'])
 
             return result_df
         except Exception as e:

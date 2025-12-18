@@ -7,6 +7,7 @@ import akshare as ak
 import time
 import random
 import logging
+from typing import List, Optional
 
 from .base import BaseDataProvider
 
@@ -93,3 +94,52 @@ class AkshareDataProvider(BaseDataProvider):
                     )
                     return None
         return None
+
+    def get_all_symbols(self, target_date: Optional[str] = None) -> List[str]:
+        """
+        获取全部股票代码列表（Akshare实现）
+
+        Args:
+            target_date: 目标日期（AKShare不支持历史查询，将使用当前日期）
+
+        Returns:
+            股票代码列表
+
+        Raises:
+            NotImplementedError: 不支持此功能
+        """
+        if target_date is not None:
+            logging.warning(
+                f"[AKShare] 不支持按历史日期查询股票列表，将使用当前日期而非目标日期 {target_date}"
+            )
+
+        logging.info("[AKShare] 正在获取全部A股股票代码列表...")
+        
+        try:
+            # 获取A股所有上市公司的代码和名称
+            df_raw = ak.stock_info_a_code_name()
+            
+            if df_raw is None or df_raw.empty:
+                logging.warning("[AKShare] 未能获取到股票列表")
+                return []
+
+            # 检查是否有股票代码列
+            if 'code' not in df_raw.columns:
+                logging.error("[AKShare] 返回数据中没有找到股票代码列")
+                return []
+
+            # 获取股票代码列表并去重
+            symbols = df_raw['code'].dropna().unique().tolist()
+            
+            # 过滤掉无效的股票代码
+            valid_symbols = []
+            for symbol in symbols:
+                if isinstance(symbol, str) and len(symbol) == 6 and symbol.isdigit():
+                    valid_symbols.append(symbol)
+            
+            logging.info(f"[AKShare] 成功获取 {len(valid_symbols)} 只股票代码")
+            return valid_symbols
+            
+        except Exception as e:
+            logging.error(f"[AKShare] 获取全部股票代码失败: {e}", exc_info=True)
+            return []

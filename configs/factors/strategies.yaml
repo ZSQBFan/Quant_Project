@@ -75,7 +75,7 @@ LightGBM_Periodic:
   rolling:
     calculator_type: AI_Trainer
     rolling_window_days: 250
-    rebalance_frequency: MS  # 每月初调仓
+    rebalance_frequency: MS  # 每月初重新训练
     trainer_class: LightGBMTrainer
     trainer_params:
       target_return_period: 30

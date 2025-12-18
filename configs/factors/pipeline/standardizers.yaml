@@ -12,7 +12,6 @@ ZScore:
   params:
     winsorize: true  # 是否进行极值处理
     winsorize_limits: [0.01, 0.99]  # 极值处理百分位
-  enabled: true
 
 # ============================================================================
 # Quantile 分位数标准化器
@@ -23,7 +22,6 @@ Quantile:
   description: "分位数标准化"
   params:
     n_quantiles: 100  # 分位数数量
-  enabled: true
 
 # ============================================================================
 # MinMax 最大最小标准化器
@@ -34,7 +32,6 @@ MinMax:
   description: "最大最小标准化"
   params:
     feature_range: [0, 1]
-  enabled: true
 
 # ============================================================================
 # Rank 排名标准化器
@@ -46,7 +43,6 @@ Rank:
   params:
     ascending: true  # 升序排名
     pct: true  # 返回百分位排名
-  enabled: true
 
 # ============================================================================
 # MAD 中位数绝对偏差标准化器
@@ -57,4 +53,3 @@ MAD:
   description: "中位数绝对偏差标准化（稳健）"
   params:
     scale_factor: 1.4826  # 与正态分布标准差的换算系数
-  enabled: true

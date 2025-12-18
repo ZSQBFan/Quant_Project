@@ -11,14 +11,36 @@ from typing import Dict
 import logging
 
 
+_spearman_warning_shown = False  # 全局标志，只显示一次警告
+
 def _calculate_spearman_for_group(group: pd.DataFrame,
                                   return_col: str) -> float:
     """计算单个分组的斯皮尔曼秩相关系数。"""
+    global _spearman_warning_shown
+
+    # 检查列是否存在
+    if 'factor_value' not in group.columns:
+        if not _spearman_warning_shown:
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 组中没有 'factor_value' 列，列: {group.columns.tolist()}")
+            _spearman_warning_shown = True
+        return float('nan')
+    if return_col not in group.columns:
+        if not _spearman_warning_shown:
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 组中没有 '{return_col}' 列，列: {group.columns.tolist()}")
+            _spearman_warning_shown = True
+        return float('nan')
+
     if len(group['factor_value']) < 2 or len(group[return_col]) < 2:
+        if not _spearman_warning_shown:
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 数据点不足: factor_value={len(group['factor_value'])}, {return_col}={len(group[return_col])}")
+            _spearman_warning_shown = True
         return float('nan')
 
     # 检查输入是否为常量，避免ConstantInputWarning
     if group['factor_value'].nunique() <= 1 or group[return_col].nunique() <= 1:
+        if not _spearman_warning_shown:
+            logging.warning(f"  > ⚠️ [_calculate_spearman_for_group] 数据为常量: factor_value唯一值={group['factor_value'].nunique()}, {return_col}唯一值={group[return_col].nunique()}")
+            _spearman_warning_shown = True
         return float('nan')
 
     corr, _ = spearmanr(group['factor_value'], group[return_col])
@@ -40,6 +62,16 @@ def calculate_rank_ic_series(factor_data: pd.DataFrame,
     """
     return_col = f'forward_return_{period}d'
 
+    # 检查收益率列是否存在
+    if return_col not in factor_data.columns:
+        logging.warning(f"  > ⚠️ [calculate_rank_ic_series] 列 '{return_col}' 不存在于数据中。可用列: {factor_data.columns.tolist()}")
+        return pd.Series(dtype=float, name=f'rank_ic_{period}d')
+
+    # 检查 factor_value 列是否存在
+    if 'factor_value' not in factor_data.columns:
+        logging.warning(f"  > ⚠️ [calculate_rank_ic_series] 列 'factor_value' 不存在于数据中。可用列: {factor_data.columns.tolist()}")
+        return pd.Series(dtype=float, name=f'rank_ic_{period}d')
+
     if 'date' not in factor_data.index.names:
         logging.warning("  > ⚠️ [calculate_rank_ic_series] 期望 'date' 在索引中。")
         if 'date' in factor_data.columns:
@@ -47,8 +79,24 @@ def calculate_rank_ic_series(factor_data: pd.DataFrame,
         else:
             pass  # 假设索引第0层是日期
 
+    # 检查每日数据点数量
+    group_sizes = factor_data.groupby(level='date').size()
+    num_groups_with_1_or_less = (group_sizes <= 1).sum()
+    if num_groups_with_1_or_less > 0:
+        logging.warning(f"  > ⚠️ [calculate_rank_ic_series] 有 {num_groups_with_1_or_less}/{len(group_sizes)} 个日期只有 <=1 条记录，无法计算 IC")
+
+    # 重置警告标志
+    global _spearman_warning_shown
+    _spearman_warning_shown = False
+
     ic_by_date: pd.Series = factor_data.groupby(level='date').apply(
         _calculate_spearman_for_group, return_col=return_col)
+
+    # 报告 NaN 数量
+    nan_count = ic_by_date.isna().sum()
+    total_count = len(ic_by_date)
+    if nan_count == total_count and total_count > 0:
+        logging.warning(f"  > ⚠️ [calculate_rank_ic_series] 所有 {total_count} 个日期的 IC 都是 NaN！")
 
     ic_by_date = ic_by_date.dropna()
     ic_by_date.name = f'rank_ic_{period}d'

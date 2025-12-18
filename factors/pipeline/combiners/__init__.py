@@ -5,6 +5,13 @@ from .fixed_weight import FixedWeightCombiner
 from .dynamic_weight import DynamicWeightCombiner
 from .dynamic_significance import DynamicSignificanceCombiner
 from .ai_combiner import AICombiner
+from .rolling import (
+    RollingCalculatorBase,
+    RollingICIRCalculator,
+    RollingRegressionCalculator,
+    RollingAITrainer,
+    AdversarialLLMCombiner,
+)
 
 __all__ = [
     'BaseFactorCombiner',
@@ -13,4 +20,10 @@ __all__ = [
     'DynamicWeightCombiner',
     'DynamicSignificanceCombiner',
     'AICombiner',
+    # Rolling combiners
+    'RollingCalculatorBase',
+    'RollingICIRCalculator',
+    'RollingRegressionCalculator',
+    'RollingAITrainer',
+    'AdversarialLLMCombiner',
 ]

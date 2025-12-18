@@ -457,4 +457,6 @@ test/output/
 # Keep MCP server configs but ignore sensitive data
 .continue/mcpServers/*.local.yaml
 .claude/
+.claude/mcpServers/*.local.yaml
+.roo/
 

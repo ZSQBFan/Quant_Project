@@ -35,16 +35,68 @@ factor_calculation:
   batch_size: 100
 
 # ============================================================================
-# 默认策略选择
+# 因子选择配置（白名单模式）
 # ============================================================================
-# 详见 strategies.yaml
+# 仅计算此列表中的因子，未列出的因子将被忽略
+# 如果列表为空 []，则不计算任何因子
 
-default_strategy: EqualWeights
+enabled_factors:
+  # --- 简单因子 (逐只股票计算) ---
+  # - Momentum           # 动量因子 - N日价格变化率
+  # - Reversal20D        # 20日反转因子 - 加权反转
+  # - RSI                # 相对强弱指数 (14日)
+  # - KDJ                # KDJ随机指标
+  # - BollingerBands     # 布林带指标
+  # - MovingAverageCross # 均线交叉因子 (短期MA/长期MA)
+  # - MACD               # MACD指标 (快慢线差值)
+  # - ADXDMI             # ADX/DMI趋势强度因子
+  # - VolumeSpike        # 成交量突增因子 (当前量/均量)
+
+  # --- 复合因子 (跨股票向量化计算，行业中性处理) ---
+  - IndNeu_Momentum    # 行业中性动量因子
+  - IndNeu_Reversal20D # 行业中性反转因子
+  - IndNeu_VolumeCV    # 行业中性成交量变异系数
+  # - IndNeu_EP          # 行业中性市盈率倒数 (E/P)
+  # - IndNeu_BP          # 行业中性市净率倒数 (B/P)
+  # - IndNeu_ROE       # 行业中性净资产收益率 
+  # - IndNeu_GPM         # 行业中性毛利率
+  # - IndNeu_SalesGrowth # 行业中性营收同比增长率
+  # - IndNeu_CFOP        # 行业中性经营现金流市价率
+  # - IndNeu_AssetTurnover  # 行业中性总资产周转率 
+  # - IndNeu_CurrentRatio   # 行业中性流动比率 
+
+# ============================================================================
+# 策略选择
+# ============================================================================
+# 可选策略（详见 strategies.yaml）:
+#
+# 静态策略:
+#   - EqualWeights        : 等权重合成 - 所有因子权重相同
+#   - FixedWeights        : 固定权重合成 - 手动指定各因子权重
+#   - DynamicSignificance : 动态显著性加权 - 根据因子显著性自动调整
+#
+# 滚动策略:
+#   - RollingICIR         : IC/IR滚动优化 - 基于历史IC/IR动态调整权重
+#   - RollingRegression   : 回归滚动优化 - 多因子回归求解最优权重
+#
+# 机器学习策略:
+#   - LightGBM_Periodic   : LightGBM模型 - 周期性重新训练的梯度提升树
+#
+# LLM策略:
+#   - AdversarialLLM      : 对抗式LLM优化 - 使用大语言模型辅助权重调整
+
+default_strategy: RollingICIR
 
 # ============================================================================
 # 标准化配置
 # ============================================================================
-# 详见 pipeline/standardizers.yaml
+# 可选标准化器（详见 pipeline/standardizers.yaml）:
+#
+#   - ZScore   : 截面Z-Score标准化 - (x - mean) / std，支持极值处理
+#   - Quantile : 分位数标准化 - 转换为0-1的分位数值
+#   - MinMax   : 最大最小标准化 - 缩放到[0,1]区间
+#   - Rank     : 排名标准化 - 转换为百分位排名
+#   - MAD      : 中位数绝对偏差标准化 - 稳健标准化，抗异常值干扰
 
 default_standardizer: ZScore
 

@@ -64,15 +64,6 @@ def run_factor_analysis(config_loader):
     factor_analysis_config = config_loader.load_factor_analysis()
     data_config = config_loader.load_data()
 
-    # 获取启用的因子
-    enabled_factors = {
-        name: cfg for name, cfg in factors_config.items() if cfg.enabled
-    }
-
-    logger.info(f"已加载 {len(enabled_factors)} 个启用的因子配置")
-    logger.info(f"已加载 {len(strategies_config)} 个策略配置")
-    logger.info(f"股票池大小: {len(universe)}")
-
     # 从配置中获取参数（优先使用因子分析配置，其次回测配置，最后默认值）
     START_DATE = factor_analysis_config.start_date or backtest_config.start_date
     END_DATE = factor_analysis_config.end_date or backtest_config.end_date
@@ -80,9 +71,120 @@ def run_factor_analysis(config_loader):
     DB_PATH = data_config.database.get('db_path', DEFAULT_CONFIG['db_path'])
     OUTPUT_DIR = factor_analysis_config.output.get('dir', DEFAULT_CONFIG['output_dir'])
     FORWARD_RETURN_PERIODS = factor_analysis_config.forward_return_periods or DEFAULT_CONFIG['forward_return_periods']
+    DEFAULT_STRATEGY = factor_analysis_config.default_strategy
     factor_calc_cfg = factor_analysis_config.factor_calculation
     SKIP_DATA_PREPARATION = factor_calc_cfg.get('skip_data_preparation', DEFAULT_CONFIG['skip_data_preparation'])
     FACTOR_CALC_PROCESSES = factor_calc_cfg.get('num_processes', DEFAULT_CONFIG['factor_calc_processes'])
+
+    # 检查是否启用全股票模式
+    if data_config.use_all_stocks:
+        logger.info("🎯 启用全股票模式，将从数据源获取全部股票代码...")
+        
+        # 获取数据提供者配置
+        providers_config = config_loader.load_providers()
+        
+        # 按优先级尝试获取全部股票代码
+        all_symbols = []
+        provider_used = None
+        
+        for provider_name in data_config.provider_priority:
+            if provider_name in providers_config and providers_config[provider_name].enabled:
+                provider_config = providers_config[provider_name]
+                
+                try:
+                    # 动态导入数据提供者类
+                    if provider_name.startswith('sqlite'):
+                        from data.providers import SQLiteDataProvider
+                        provider_class = SQLiteDataProvider
+                    elif provider_name == 'tushare':
+                        from data.providers import TushareDataProvider
+                        provider_class = TushareDataProvider
+                    elif provider_name == 'akshare':
+                        from data.providers import AkshareDataProvider
+                        provider_class = AkshareDataProvider
+                    else:
+                        logger.warning(f"未知的数据提供者: {provider_name}")
+                        continue
+                    
+                    # 创建提供者实例
+                    provider_kwargs = provider_config.config.copy()
+                    
+                    # 处理特殊配置
+                    if provider_name == 'tushare' and 'token' not in provider_kwargs:
+                        # 如果是tushare且没有配置token，尝试从环境变量获取
+                        provider_kwargs['token'] = os.getenv('TUSHARE_TOKEN')
+                        if not provider_kwargs['token']:
+                            logger.warning("Tushare需要token配置，跳过...")
+                            continue
+                    elif provider_name.startswith('sqlite'):
+                        # SQLite需要特殊的配置处理
+                        if 'connection' in provider_kwargs and 'tables' in provider_kwargs:
+                            conn_config = provider_kwargs['connection']
+                            tables_config = provider_kwargs['tables']
+                            daily_config = tables_config.get('daily', {})
+                            
+                            provider_kwargs = {
+                                'db_path': conn_config.get('db_path'),
+                                'table_name': daily_config.get('table_name'),
+                                'column_mapping': daily_config.get('column_mapping', {})
+                            }
+                    
+                    provider_instance = provider_class(**provider_kwargs)
+                    
+                    # 智能选择目标日期
+                    target_date = None
+                    if provider_name.startswith('sqlite'):
+                        # 对于数据库，使用开始日期避免幸存者偏差
+                        target_date = START_DATE
+                        logger.info(f"[全股票模式] 使用开始日期 {target_date} 以避免幸存者偏差")
+                    else:
+                        # 对于外部数据源，使用当前日期
+                        logger.info(f"[全股票模式] {provider_name} 不支持历史查询，使用当前日期")
+                    
+                    # 获取全部股票代码
+                    logger.info(f"[全股票模式] 尝试使用 {provider_name} 获取全部股票代码...")
+                    all_symbols = provider_instance.get_all_symbols(target_date)
+                    
+                    if all_symbols:
+                        provider_used = provider_name
+                        logger.info(f"[全股票模式] 成功从 {provider_name} 获取到 {len(all_symbols)} 只股票")
+                        break
+                    else:
+                        logger.warning(f"[全股票模式] {provider_name} 未返回任何股票代码")
+                        
+                except Exception as e:
+                    logger.error(f"[全股票模式] 使用 {provider_name} 获取股票代码失败: {e}")
+                    continue
+        
+        if not all_symbols:
+            error_msg = (
+                "全股票模式启用但无法获取股票代码。请检查：\n"
+                "1. 数据源配置是否正确\n"
+                "2. 网络连接是否正常\n"
+                "3. API密钥是否有效（如Tushare）\n"
+                "4. 至少有一个数据源可用"
+            )
+            logger.critical(error_msg)
+            raise RuntimeError(error_msg)
+        
+        # 替换股票池
+        universe = all_symbols
+        logger.info(f"✅ 全股票模式成功，已替换股票池: {provider_used} -> {len(universe)} 只股票")
+    else:
+        logger.info(f"📋 使用配置文件股票池，共 {len(universe)} 只股票")
+
+    # 获取启用的因子（配置加载器已经处理了白名单机制）
+    enabled_factors = factors_config
+
+    logger.info(f"已加载 {len(enabled_factors)} 个启用的因子配置")
+    logger.info(f"已加载 {len(strategies_config)} 个策略配置")
+    logger.info(f"默认策略: {factor_analysis_config.default_strategy}")
+    logger.info(f"最终股票池大小: {len(universe)}")
+    
+    # 显示可用策略列表
+    if strategies_config:
+        available_strategies = list(strategies_config.keys())
+        logger.info(f"可用策略: {available_strategies}")
 
     # 确保输出目录存在
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -101,16 +203,86 @@ def run_factor_analysis(config_loader):
         from old_code.data.data_manager import DataProviderManager
         from old_code.data.data_providers import SQLiteDataProvider
 
-    # 数据源配置
-    DATA_PROVIDERS_CONFIG = [
-        (
-            SQLiteDataProvider,
-            {
-                'db_path': './database/JY_database/sqlite/JY_database.sqlite',
-                'table_name': 'JY_t_price_daily'
-            }
-        ),
-    ]
+    # 数据源配置 - 使用统一的配置处理逻辑
+    DATA_PROVIDERS_CONFIG = []
+    
+    # 重新加载providers_config以确保可用
+    if 'providers_config' not in locals():
+        providers_config = config_loader.load_providers()
+    
+    # 处理SQLite数据提供者配置 - 支持多个SQLite数据源
+    for provider_name in providers_config:
+        provider_config = providers_config[provider_name]
+        
+        # 支持sqlite, sqlite_jy, sqlite_csmr等所有SQLite提供者
+        if provider_name.startswith('sqlite') and provider_config.enabled:
+            logger.info(f"处理SQLite数据提供者: {provider_name}")
+            
+            # 应用与全股票模式相同的配置处理逻辑
+            provider_kwargs = provider_config.config.copy()
+            
+            if 'connection' in provider_kwargs and 'tables' in provider_kwargs:
+                conn_config = provider_kwargs['connection']
+                tables_config = provider_kwargs['tables']
+                daily_config = tables_config.get('daily', {})
+                
+                processed_kwargs = {
+                    'db_path': conn_config.get('db_path'),
+                    'table_name': daily_config.get('table_name'),
+                    'column_mapping': daily_config.get('column_mapping', {})
+                }
+                
+                # 使用名称标识符作为元组的第一个元素
+                DATA_PROVIDERS_CONFIG.append((provider_name, SQLiteDataProvider, processed_kwargs))
+                logger.info(f"✅ {provider_name}数据提供者配置已从配置文件加载: {processed_kwargs}")
+            else:
+                logger.error(f"❌ {provider_name}配置格式不正确，无法创建数据提供者")
+        elif provider_name.startswith('sqlite'):
+            logger.warning(f"❌ {provider_name}配置未启用")
+    
+    # 处理其他数据提供者（Tushare, Akshare等）
+    for provider_name in providers_config:
+        provider_config = providers_config[provider_name]
+        
+        if not provider_name.startswith('sqlite') and provider_config.enabled:
+            try:
+                if provider_name == 'tushare':
+                    from data.providers import TushareDataProvider
+                    provider_class = TushareDataProvider
+                elif provider_name == 'akshare':
+                    from data.providers import AkshareDataProvider
+                    provider_class = AkshareDataProvider
+                else:
+                    logger.warning(f"未知的数据提供者: {provider_name}")
+                    continue
+                
+                # 处理特殊配置
+                provider_kwargs = provider_config.config.copy()
+                
+                if provider_name == 'tushare' and 'token' not in provider_kwargs:
+                    # 如果是tushare且没有配置token，尝试从环境变量获取
+                    provider_kwargs['token'] = os.getenv('TUSHARE_TOKEN')
+                    if not provider_kwargs['token']:
+                        logger.warning("Tushare需要token配置，跳过...")
+                        continue
+                
+                # 使用名称标识符作为元组的第一个元素
+                DATA_PROVIDERS_CONFIG.append((provider_name, provider_class, provider_kwargs))
+                logger.info(f"✅ {provider_name}数据提供者配置已加载")
+                
+            except Exception as e:
+                logger.error(f"加载{provider_name}提供者失败: {e}")
+    
+    # 如果没有配置成功，抛出异常
+    if not DATA_PROVIDERS_CONFIG:
+        error_msg = (
+            "无法创建任何数据提供者。请检查：\n"
+            "1. 配置文件 configs/data/providers/*.yaml 是否正确\n"
+            "2. 数据提供者配置是否启用\n"
+            "3. 配置格式是否正确"
+        )
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
 
     data_manager = DataProviderManager(
         provider_configs=DATA_PROVIDERS_CONFIG,
@@ -243,20 +415,19 @@ def run_factor_analysis(config_loader):
             )
 
             if all_data_df is not None and not all_data_df.empty:
-                # 尝试导入复合因子注册表
-                try:
-                    from old_code.factor_analysis.factors_complex import COMPLEX_FACTOR_REGISTRY
-                except ImportError:
-                    logger.warning("无法导入复合因子注册表，跳过复合因子计算")
-                    COMPLEX_FACTOR_REGISTRY = {}
-
+                from core.registry import registry
+                
                 for factor_name in complex_factors_batch:
-                    if factor_name in COMPLEX_FACTOR_REGISTRY:
+                    if registry.exists('factors', factor_name):
                         logger.info(f"[Complex] 计算: {factor_name}...")
-                        factor_func = COMPLEX_FACTOR_REGISTRY[factor_name]
-
+                        
                         try:
-                            factor_series = factor_func(all_data_df)
+                            FactorClass = registry.get('factors', factor_name)
+                            # 实例化因子类
+                            factor_instance = FactorClass()
+                            # 调用 calculate 方法
+                            factor_series = factor_instance.calculate(all_data_df)
+                            
                             if factor_series is not None:
                                 factor_series.name = factor_name
                                 all_factors_dfs[factor_name] = factor_series.sort_index()
@@ -264,7 +435,7 @@ def run_factor_analysis(config_loader):
                         except Exception as e:
                             logger.error(f"计算复合因子 {factor_name} 失败: {e}")
                     else:
-                        logger.warning(f"因子 {factor_name} 在 COMPLEX_FACTOR_REGISTRY 中未找到")
+                        logger.warning(f"因子 {factor_name} 在注册表中未找到")
             else:
                 logger.error("无法加载数据，跳过复合因子计算")
         except Exception as e:
@@ -332,11 +503,92 @@ def run_factor_analysis(config_loader):
             ).apply(lambda x: STANDARDIZER.standardize(x))
             logger.info("  > 所有因子已完成标准化处理")
 
-        # 因子合成（默认等权）
-        logger.info("步骤 6c: 因子合成（等权）...")
-        composite_factor_series = combined_factors_df.mean(axis=1)
-        composite_factor_series.name = 'factor_value'
-        final_factor_name = "Composite_EqualWeights"
+        # 因子合成（使用配置策略）
+        logger.info(f"步骤 6c: 因子合成（策略: {DEFAULT_STRATEGY}）...")
+
+        # 从策略配置获取合成器名称
+        if DEFAULT_STRATEGY in strategies_config:
+            strategy_config = strategies_config[DEFAULT_STRATEGY]
+            combiner_name = strategy_config.combiner
+            logger.info(f"使用合成器: {combiner_name}")
+
+            # 检查是否是滚动策略
+            is_rolling = hasattr(strategy_config, 'rolling') and strategy_config.rolling is not None
+
+            if is_rolling:
+                # 滚动策略：使用滚动计算器
+                logger.info("  > 模式: 动态滚动 (每日权重计算)")
+                rolling_config = strategy_config.rolling
+                calculator_type = rolling_config.get('calculator_type', 'Regression')
+
+                # 准备滚动数据：合并因子值和未来收益
+                all_data_merged = pd.merge(
+                    combined_factors_df.reset_index(),
+                    future_returns_df.reset_index(),
+                    on=['date', 'asset'],
+                    how='inner'
+                ).set_index(['date', 'asset']).sort_index()
+
+                # 创建滚动计算器
+                try:
+                    if calculator_type == 'Regression':
+                        from factors.pipeline.combiners.rolling import RollingRegressionCalculator
+                        roller = RollingRegressionCalculator(
+                            factor_names=FACTOR_NAMES,
+                            rolling_window_days=rolling_config.get('rolling_window_days', 90),
+                            rebalance_frequency=rolling_config.get('rebalance_frequency', 'D'),
+                            target_return_period=rolling_config.get('target_return_period', 30)
+                        )
+                    elif calculator_type == 'ICIR':
+                        from factors.pipeline.combiners.rolling import RollingICIRCalculator
+                        roller = RollingICIRCalculator(
+                            factor_names=FACTOR_NAMES,
+                            rolling_window_days=rolling_config.get('rolling_window_days', 90),
+                            rebalance_frequency=rolling_config.get('rebalance_frequency', 'D'),
+                            factor_weight_config=rolling_config.get('factor_weighting_config', {}),
+                            forward_return_periods=FORWARD_RETURN_PERIODS
+                        )
+                    else:
+                        raise ValueError(f"未知的 calculator_type: {calculator_type}")
+
+                    # 执行滚动合成
+                    composite_factor_series = roller.calculate_composite_factor(all_data_merged)
+                    composite_factor_series.name = 'factor_value'
+                    final_factor_name = f"Composite_{DEFAULT_STRATEGY}"
+                    logger.info(f"  > 完成: {DEFAULT_STRATEGY} 策略合成")
+
+                except Exception as e:
+                    logger.warning(f"滚动计算器执行失败，回退到等权合成: {e}")
+                    import traceback
+                    logger.debug(traceback.format_exc())
+                    composite_factor_series = combined_factors_df.mean(axis=1)
+                    composite_factor_series.name = 'factor_value'
+                    final_factor_name = "Composite_EqualWeights_Fallback"
+            else:
+                # 静态策略：使用 combiner
+                logger.info("  > 模式: 静态合成")
+                try:
+                    from core.registry import get_combiner
+                    combiner_class = get_combiner(combiner_name)
+                    combiner = combiner_class(**strategy_config.combiner_params)
+
+                    # 执行因子合成
+                    composite_factor_series = combiner.combine(combined_factors_df)
+                    composite_factor_series.name = 'factor_value'
+                    final_factor_name = f"Composite_{DEFAULT_STRATEGY}"
+
+                    logger.info(f"  > 完成: {DEFAULT_STRATEGY} 策略合成")
+
+                except Exception as e:
+                    logger.warning(f"合成器 {combiner_name} 执行失败，回退到等权合成: {e}")
+                    composite_factor_series = combined_factors_df.mean(axis=1)
+                    composite_factor_series.name = 'factor_value'
+                    final_factor_name = "Composite_EqualWeights_Fallback"
+        else:
+            logger.warning(f"策略 '{DEFAULT_STRATEGY}' 未找到配置，回退到等权合成")
+            composite_factor_series = combined_factors_df.mean(axis=1)
+            composite_factor_series.name = 'factor_value'
+            final_factor_name = "Composite_EqualWeights_Fallback"
 
         combined_factors_df = composite_factor_series.to_frame()
 

@@ -203,3 +203,26 @@ class DatabaseHandler:
             if conn:
                 conn.close()
                 logging.debug(f"[线程 {threading.get_ident()}] 数据库连接已关闭。")
+
+    def __getstate__(self):
+        """
+        Pickle序列化时排除threading.local对象。
+        
+        Returns:
+            dict: 排除_local属性后的状态字典
+        """
+        state = self.__dict__.copy()
+        # 排除threading.local对象，因为它无法被pickle序列化
+        state.pop('_local', None)
+        return state
+
+    def __setstate__(self, state):
+        """
+        Pickle反序列化时重建threading.local对象。
+        
+        Args:
+            state: 从pickle加载的状态字典
+        """
+        self.__dict__.update(state)
+        # 在新进程中重建threading.local对象
+        self._local = threading.local()

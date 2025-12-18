@@ -67,25 +67,27 @@ def download_data(config_loader=None):
     if sqlite_cfg and sqlite_cfg.enabled:
         conn_cfg = sqlite_cfg.config.get('connection', {})
         tables_cfg = sqlite_cfg.config.get('tables', {}).get('daily', {})
-        DATA_PROVIDERS_CONFIG.append((
-            SQLiteDataProvider,
-            {
-                'db_path': conn_cfg.get('db_path', './database/JY_database/sqlite/JY_database.sqlite'),
-                'table_name': tables_cfg.get('table_name', 'JY_t_price_daily')
-            }
-        ))
+        
+        # 应用完整的配置处理逻辑，包括column_mapping
+        processed_kwargs = {
+            'db_path': conn_cfg.get('db_path'),
+            'table_name': tables_cfg.get('table_name', 'JY_t_price_daily'),
+            'column_mapping': tables_cfg.get('column_mapping', {})
+        }
+        
+        DATA_PROVIDERS_CONFIG.append((SQLiteDataProvider, processed_kwargs))
+        logger.info(f"✅ SQLite数据提供者配置已从配置文件加载: db_path={processed_kwargs['db_path']}")
 
-    # 如果没有配置，使用默认值
+    # 如果没有配置，抛出异常
     if not DATA_PROVIDERS_CONFIG:
-        DATA_PROVIDERS_CONFIG = [
-            (
-                SQLiteDataProvider,
-                {
-                    'db_path': './database/JY_database/sqlite/JY_database.sqlite',
-                    'table_name': 'JY_t_price_daily'
-                }
-            ),
-        ]
+        error_msg = (
+            "无法创建SQLite数据提供者。请检查：\n"
+            "1. 配置文件 configs/data/providers/sqlite.yaml 是否正确\n"
+            "2. SQLite配置是否启用\n"
+            "3. 配置格式是否正确"
+        )
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
 
     logger.info("初始化 DataProviderManager...")
     data_manager = DataProviderManager(

@@ -14,7 +14,6 @@ Momentum:
   required_columns:
     - close
   description: "动量因子 - N日价格变化率"
-  enabled: true
 
 Reversal20D:
   category: simple
@@ -24,7 +23,6 @@ Reversal20D:
   required_columns:
     - close
   description: "20日反转因子 - 加权反转"
-  enabled: true
 
 # ============================================================================
 # 技术指标类因子
@@ -37,7 +35,6 @@ RSI:
   required_columns:
     - close
   description: "相对强弱指数"
-  enabled: true
 
 KDJ:
   category: simple
@@ -50,7 +47,6 @@ KDJ:
     - low
     - close
   description: "KDJ指标"
-  enabled: true
 
 BollingerBands:
   category: simple
@@ -60,7 +56,6 @@ BollingerBands:
   required_columns:
     - close
   description: "布林带指标"
-  enabled: true
 
 MovingAverageCross:
   category: simple
@@ -70,7 +65,6 @@ MovingAverageCross:
   required_columns:
     - close
   description: "均线交叉因子"
-  enabled: true
 
 MACD:
   category: simple
@@ -81,7 +75,6 @@ MACD:
   required_columns:
     - close
   description: "MACD指标"
-  enabled: true
 
 ADXDMI:
   category: simple
@@ -93,7 +86,6 @@ ADXDMI:
     - low
     - close
   description: "ADX/DMI趋势因子"
-  enabled: true
 
 # ============================================================================
 # 成交量类因子
@@ -106,4 +98,3 @@ VolumeSpike:
   required_columns:
     - volume
   description: "成交量突增因子"
-  enabled: true

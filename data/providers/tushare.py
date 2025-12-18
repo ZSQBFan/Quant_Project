@@ -7,6 +7,8 @@ import tushare as ts
 import time
 import random
 import logging
+from typing import List, Optional
+from datetime import datetime
 
 from .base import BaseDataProvider
 
@@ -115,3 +117,60 @@ class TushareDataProvider(BaseDataProvider):
                     )
                     return None
         return None
+
+    def get_all_symbols(self, target_date: Optional[str] = None) -> List[str]:
+        """
+        获取全部股票代码列表（Tushare实现）
+
+        Args:
+            target_date: 目标日期，用于获取该时间点的股票列表
+                        如果为None，使用当前日期
+
+        Returns:
+            股票代码列表
+        """
+        logging.info(f"[Tushare] 正在获取{target_date or '当前'}的全部股票代码列表...")
+        
+        try:
+            # 如果没有指定目标日期，使用当前日期
+            if target_date is None:
+                target_date = datetime.now().strftime('%Y%m%d')
+            else:
+                # 将YYYY-MM-DD转换为YYYYMMDD格式
+                target_date = target_date.replace('-', '')
+            
+            # 调用stock_basic接口获取股票基础信息
+            logging.info(f"[Tushare] 调用stock_basic接口查询{target_date}的股票列表...")
+            
+            df_raw = self.pro.stock_basic(
+                exchange='',
+                list_status='L',  # 上市状态
+                fields='ts_code,list_date,delist_date'
+            )
+            
+            if df_raw is None or df_raw.empty:
+                logging.warning("[Tushare] 未能获取到股票基础信息")
+                return []
+
+            # 筛选指定日期存在的股票
+            # 在target_date之前上市，且在target_date之后（仍）未退市
+            valid_stocks = df_raw[
+                (df_raw['list_date'] <= target_date) &
+                ((df_raw['delist_date'].isna()) | (df_raw['delist_date'] > target_date))
+            ]
+            
+            # 提取股票代码（去掉交易所后缀）
+            symbols = []
+            for ts_code in valid_stocks['ts_code']:
+                if isinstance(ts_code, str):
+                    # 去掉后缀.SZ, .SH等
+                    symbol = ts_code.split('.')[0]
+                    if len(symbol) == 6 and symbol.isdigit():
+                        symbols.append(symbol)
+            
+            logging.info(f"[Tushare] 成功获取 {len(symbols)} 只股票代码")
+            return symbols
+            
+        except Exception as e:
+            logging.error(f"[Tushare] 获取全部股票代码失败: {e}", exc_info=True)
+            return []
