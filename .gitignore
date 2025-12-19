@@ -418,7 +418,7 @@ _site/
 *.pid.lock
 
 # Core dumps
-core
+# core
 core.*
 
 # Lock files (project specific - uncomment if needed)

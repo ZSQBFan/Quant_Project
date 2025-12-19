@@ -7,8 +7,8 @@
 import pandas as pd
 import numpy as np
 import logging
-from strategies.rolling_calculators import RollingICIRCalculator
-from core.abstractions import RollingCalculatorBase
+from factors.pipeline.combiners.rolling import RollingICIRCalculator
+from factors.core.abstractions import RollingCalculatorBase
 
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

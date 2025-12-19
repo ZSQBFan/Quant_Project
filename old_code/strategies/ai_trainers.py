@@ -3,7 +3,7 @@
 import pandas as pd
 import lightgbm as lgb
 import logging
-from core.abstractions import AITrainerBase
+from factors.core.abstractions import AITrainerBase
 
 
 class LightGBMTrainer(AITrainerBase):

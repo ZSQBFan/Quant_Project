@@ -8,7 +8,7 @@ import pandas as pd
 import logging
 from typing import Any
 
-from core.abstractions import RollingCalculatorBase, AITrainerBase
+from factors.core.abstractions import RollingCalculatorBase, AITrainerBase
 
 
 class RollingAITrainer(RollingCalculatorBase):

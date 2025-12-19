@@ -1,4 +1,4 @@
-# core/abstractions.py
+# factors/core/abstractions.py
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
@@ -53,8 +53,6 @@ class RollingCalculatorBase(ABC):
                                  daily_factors: pd.DataFrame) -> pd.Series:
         pass
 
-    # 【【【修正】】】: 恢复了被遗漏的核心“模板方法”。
-    # 这个方法定义了所有滚动策略共享的、统一的执行流程。
     def calculate_composite_factor(self,
                                    all_data_merged: pd.DataFrame) -> pd.Series:
         """

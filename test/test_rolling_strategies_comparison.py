@@ -7,8 +7,8 @@
 import pandas as pd
 import numpy as np
 import logging
-from strategies.rolling_calculators import RollingICIRCalculator, RollingRegressionCalculator
-from core.abstractions import RollingCalculatorBase
+from factors.pipeline.combiners.rolling import RollingICIRCalculator, RollingRegressionCalculator
+from factors.core.abstractions import RollingCalculatorBase
 from sklearn.linear_model import LinearRegression
 
 # 设置日志

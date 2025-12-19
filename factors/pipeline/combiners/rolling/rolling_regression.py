@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List
 
 from sklearn.linear_model import LinearRegression
-from core.abstractions import RollingCalculatorBase
+from factors.core.abstractions import RollingCalculatorBase
 
 
 class RollingRegressionCalculator(RollingCalculatorBase):

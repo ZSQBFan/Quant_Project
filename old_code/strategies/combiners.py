@@ -5,7 +5,7 @@ import numpy as np
 import logging
 import joblib
 from typing import Any
-from core.abstractions import BaseFactorCombiner
+from factors.core.abstractions import BaseFactorCombiner
 
 
 class EqualWeightCombiner(BaseFactorCombiner):

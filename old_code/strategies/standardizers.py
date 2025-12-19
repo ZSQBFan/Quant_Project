@@ -2,7 +2,7 @@
 
 import pandas as pd
 import logging
-from core.abstractions import BaseStandardizer
+from factors.core.abstractions import BaseStandardizer
 
 
 class NoStandardizer(BaseStandardizer):

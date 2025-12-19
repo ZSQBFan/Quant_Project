@@ -6,7 +6,7 @@ import json
 import requests
 from typing import Any, Dict, List
 from sklearn.linear_model import LinearRegression
-from core.abstractions import RollingCalculatorBase, AITrainerBase
+from factors.core.abstractions import RollingCalculatorBase, AITrainerBase
 from factor_analysis import analysis_metrics as metrics
 
 

@@ -9,7 +9,7 @@ import pandas as pd
 import logging
 from typing import Any, List
 
-from core.abstractions import AITrainerBase
+from factors.core.abstractions import AITrainerBase
 
 
 class LightGBMTrainer(AITrainerBase):

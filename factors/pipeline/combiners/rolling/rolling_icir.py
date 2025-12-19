@@ -8,7 +8,7 @@ import pandas as pd
 import logging
 from typing import Dict, List
 
-from core.abstractions import RollingCalculatorBase
+from factors.core.abstractions import RollingCalculatorBase
 from factors.analysis import metrics
 
 

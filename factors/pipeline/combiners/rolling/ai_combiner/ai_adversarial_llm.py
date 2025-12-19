@@ -11,7 +11,7 @@ import re
 import requests
 from typing import Any, Dict, List
 
-from core.abstractions import RollingCalculatorBase
+from factors.core.abstractions import RollingCalculatorBase
 from factors.analysis import metrics
 
 
