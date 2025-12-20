@@ -30,18 +30,20 @@ class RollingAITrainer(RollingCalculatorBase):
         self.trainer = training_calculator
 
     def _calculate_payload_for_day(
-            self, historical_data_window: pd.DataFrame) -> Any:
+            self, historical_data_window: pd.DataFrame, current_date: pd.Timestamp) -> Any:
         """
         在滚动窗口内训练模型。
 
         Args:
             historical_data_window: 历史数据窗口
+            current_date: 当前计算日期
 
         Returns:
             训练好的模型
         """
         return self.trainer.train_model(historical_data_window,
-                                        self.factor_names)
+                                        self.factor_names,
+                                        current_date)
 
     def _combine_factors_for_day(self, payload: Any,
                                  daily_factors: pd.DataFrame) -> pd.Series:

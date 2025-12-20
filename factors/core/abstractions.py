@@ -45,7 +45,7 @@ class RollingCalculatorBase(ABC):
 
     @abstractmethod
     def _calculate_payload_for_day(
-            self, historical_data_window: pd.DataFrame) -> Any:
+            self, historical_data_window: pd.DataFrame, current_date: pd.Timestamp) -> Any:
         pass
 
     @abstractmethod
@@ -88,7 +88,7 @@ class RollingCalculatorBase(ABC):
 
                 if not historical_data_window.empty:
                     new_payload = self._calculate_payload_for_day(
-                        historical_data_window)
+                        historical_data_window, current_date)
                     if new_payload is not None:
                         self.current_payload = new_payload
                         logging.debug(
@@ -129,5 +129,5 @@ class AITrainerBase(ABC):
 
     @abstractmethod
     def train_model(self, historical_data_window: pd.DataFrame,
-                    factor_names: List[str]) -> Any:
+                    factor_names: List[str], current_date: pd.Timestamp) -> Any:
         pass

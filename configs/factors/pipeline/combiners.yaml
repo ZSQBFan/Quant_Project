@@ -41,8 +41,8 @@ RollingICIR:
   standardizer: ZScore
   rolling:
     calculator_type: ICIR
-    rolling_window_days: 90
-    rebalance_frequency: D  # 'D'=日, 'W'=周, 'MS'=月初
+    rolling_window_days: 60
+    rebalance_frequency: MS  # 'D'=日, 'W'=周, 'MS'=月初
     factor_weighting_config:
       Momentum: ic_mean_30d
       Reversal20D: ir_30d

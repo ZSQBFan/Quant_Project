@@ -49,19 +49,18 @@ class RollingICIRCalculator(RollingCalculatorBase):
         return s, self.periods[0]
 
     def _calculate_payload_for_day(self,
-                                   hist_df: pd.DataFrame) -> Dict[str, float]:
+                                   hist_df: pd.DataFrame,
+                                   current_date: pd.Timestamp) -> Dict[str, float]:
         """
         计算单日的因子权重。
 
         Args:
             hist_df: 历史数据窗口
-
-        Returns:
-            因子权重字典
+            current_date: 当前计算日期
         """
         # 添加数据质量检查
         if hist_df.empty:
-            logging.warning(f"  > ⚠️ [RollingICIRCalculator] 历史数据窗口为空，返回等权权重")
+            logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingICIRCalculator] 历史数据窗口为空，返回等权权重")
             return {f: 1.0/len(self.factor_names) for f in self.factor_names}
 
         # 检查每个因子的数据质量
@@ -72,29 +71,29 @@ class RollingICIRCalculator(RollingCalculatorBase):
             return_col = f'forward_return_{p}d'
 
             if return_col not in hist_df.columns:
-                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 缺少 {return_col} 列，跳过因子 {fname}")
+                logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingICIRCalculator] 缺少 {return_col} 列，跳过因子 {fname}")
                 continue
 
             factor_data = hist_df[[fname, return_col]].dropna()
             if len(factor_data) < 10:  # 至少需要10个数据点进行IC计算
-                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 因子 {fname} 数据点不足({len(factor_data)})，跳过")
+                logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingICIRCalculator] 因子 {fname} 数据点不足({len(factor_data)})，跳过")
                 continue
 
             # 检查因子值是否为常量
             if factor_data[fname].nunique() <= 1:
-                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 因子 {fname} 值为常量，跳过")
+                logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingICIRCalculator] 因子 {fname} 值为常量，跳过")
                 continue
 
             # 检查收益率是否为常量
             if factor_data[return_col].nunique() <= 1:
-                logging.warning(f"  > ⚠️ [RollingICIRCalculator] 收益率 {return_col} 为常量，跳过因子 {fname}")
+                logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingICIRCalculator] 收益率 {return_col} 为常量，跳过因子 {fname}")
                 continue
 
             valid_factors.append((fname, m_key, p))
 
         # 如果没有有效因子，返回等权权重
         if not valid_factors:
-            logging.warning(f"  > ⚠️ [RollingICIRCalculator] 没有有效因子，返回等权权重")
+            logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingICIRCalculator] 没有有效因子，返回等权权重")
             return {f: 1.0/len(self.factor_names) for f in self.factor_names}
 
         # 计算有效因子的权重

@@ -31,12 +31,13 @@ class RollingRegressionCalculator(RollingCalculatorBase):
         self.return_col = f'forward_return_{target_return_period}d'
 
     def _calculate_payload_for_day(
-            self, historical_data_window: pd.DataFrame) -> Dict[str, float]:
+            self, historical_data_window: pd.DataFrame, current_date: pd.Timestamp) -> Dict[str, float]:
         """
         使用线性回归计算单日的因子权重。
 
         Args:
             historical_data_window: 历史数据窗口
+            current_date: 当前计算日期
 
         Returns:
             因子权重字典
@@ -44,6 +45,7 @@ class RollingRegressionCalculator(RollingCalculatorBase):
         data = historical_data_window[self.factor_names +
                                       [self.return_col]].dropna()
         if len(data) < len(self.factor_names) + 2:
+            logging.warning(f"  > ⚠️ [{current_date.date()}] [RollingRegressionCalculator] 数据点不足({len(data)})，无法进行回归")
             return {f: 0.0 for f in self.factor_names}
 
         X = data[self.factor_names]
