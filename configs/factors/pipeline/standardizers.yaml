@@ -22,6 +22,19 @@ Quantile:
   description: "分位数标准化"
   params:
     n_quantiles: 100  # 分位数数量
+    output_distribution: "normal"  # 输出分布类型: "uniform"(均匀分布) 或 "normal"(正态分布)
+
+# 配置示例：
+#
+# 使用均匀分布（默认）：
+# Quantile:
+#   n_quantiles: 100
+#   output_distribution: "uniform"
+#
+# 使用正态分布：
+# Quantile:
+#   n_quantiles: 100
+#   output_distribution: "normal"
 
 # ============================================================================
 # MinMax 最大最小标准化器

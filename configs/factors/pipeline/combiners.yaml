@@ -11,7 +11,6 @@
 EqualWeights:
   combiner: EqualWeight
   combiner_params: {}
-  standardizer: ZScore
   description: "等权重合成策略"
 
 FixedWeights:
@@ -20,13 +19,11 @@ FixedWeights:
     factor_weights:
       BollingerBands: 0.3
       Momentum: 0.7
-  standardizer: ZScore
   description: "固定权重合成策略"
 
 DynamicSignificance:
   combiner: DynamicSignificance
   combiner_params: {}
-  standardizer: ZScore
   description: "动态显著性加权策略"
 
 # ============================================================================
@@ -38,7 +35,6 @@ RollingICIR:
   combiner: DynamicWeight
   combiner_params:
     factor_weights: {}  # 由滚动计算器动态更新
-  standardizer: ZScore
   rolling:
     calculator_type: ICIR
     rolling_window_days: 60
@@ -55,7 +51,6 @@ RollingRegression:
   combiner: DynamicWeight
   combiner_params:
     factor_weights: {}
-  standardizer: ZScore
   rolling:
     calculator_type: Regression
     rolling_window_days: 90
@@ -71,7 +66,6 @@ LightGBM_Periodic:
   combiner: StaticAICombiner
   combiner_params:
     initial_model_path: null  # 首次训练为null，后续可指定路径
-  standardizer: ZScore
   rolling:
     calculator_type: AI_Trainer
     rolling_window_days: 250
@@ -105,7 +99,6 @@ AdversarialLLM:
   combiner: DynamicWeight
   combiner_params:
     factor_weights: {}
-  standardizer: ZScore
   rolling:
     calculator_type: AdversarialLLM
     rolling_window_days: 90

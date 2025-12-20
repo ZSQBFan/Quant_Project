@@ -85,18 +85,19 @@ enabled_factors:
 # LLM策略:
 #   - AdversarialLLM      : 对抗式LLM优化 - 使用大语言模型辅助权重调整
 
-default_strategy: RollingRegression
+default_strategy: RollingICIR
 
 # ============================================================================
 # 标准化配置
 # ============================================================================
 # 可选标准化器（详见 pipeline/standardizers.yaml）:
 #
-#   - ZScore   : 截面Z-Score标准化 - (x - mean) / std，支持极值处理
+#   - ZScore   : 截面Z-Score标准化 - (x - mean) / std
 #   - Quantile : 分位数标准化 - 转换为0-1的分位数值
 #   - MinMax   : 最大最小标准化 - 缩放到[0,1]区间
 #   - Rank     : 排名标准化 - 转换为百分位排名
 #   - MAD      : 中位数绝对偏差标准化 - 稳健标准化，抗异常值干扰
+#   - None     : 不进行标准化
 
 default_standardizer: ZScore
 

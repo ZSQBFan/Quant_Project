@@ -24,7 +24,6 @@ DEFAULT_CONFIG = {
     'skip_data_preparation': True,
     'factor_calc_processes': 8,
     'strategy_name': 'EqualWeights',
-    'standardizer': 'ZScore',
 }
 
 
@@ -417,17 +416,57 @@ def run_factor_analysis(config_loader):
         logger.warning("没有计算出任何因子，流程终止。")
         return
 
-    # 导入标准化器
+    # 从配置中获取默认标准化器
+    DEFAULT_STANDARDIZER = factor_analysis_config.default_standardizer
+    logger.info(f"从配置中获取默认标准化器: {DEFAULT_STANDARDIZER}")
+    
+    # 动态加载标准化器
+    STANDARDIZER = None
+    
+    # 尝试从注册表获取标准化器
     try:
-        from factors.pipeline.standardizers import CrossSectionalZScoreStandardizer
-        STANDARDIZER = CrossSectionalZScoreStandardizer()
-    except ImportError:
+        from core.registry import get_standardizer
+        StandardizerClass = get_standardizer(DEFAULT_STANDARDIZER)
+        
+        # 从标准化器配置中获取参数
         try:
-            from old_code.strategies.standardizers import CrossSectionalZScoreStandardizer
-            STANDARDIZER = CrossSectionalZScoreStandardizer()
+            from core.config import ConfigLoader
+            config_loader = ConfigLoader()
+            standardizer_configs = config_loader._load_yaml('factors/pipeline/standardizers.yaml')
+            standardizer_config = standardizer_configs.get(DEFAULT_STANDARDIZER, {}).get('params', {})
+        except:
+            standardizer_config = {}
+        
+        # 实例化标准化器
+        if standardizer_config:
+            STANDARDIZER = StandardizerClass(**standardizer_config)
+            logger.info(f"使用配置参数创建标准化器 {DEFAULT_STANDARDIZER}: {standardizer_config}")
+        else:
+            STANDARDIZER = StandardizerClass()
+            logger.info(f"使用默认参数创建标准化器 {DEFAULT_STANDARDIZER}")
+            
+    except ImportError as e:
+        logger.warning(f"无法从注册表导入标准化器 {DEFAULT_STANDARDIZER}: {e}")
+        # 回退到旧代码
+        try:
+            if DEFAULT_STANDARDIZER == 'ZScore':
+                from factors.pipeline.standardizers import CrossSectionalZScoreStandardizer
+                STANDARDIZER = CrossSectionalZScoreStandardizer()
+            elif DEFAULT_STANDARDIZER == 'MinMax':
+                from factors.pipeline.standardizers import CrossSectionalMinMaxStandardizer
+                STANDARDIZER = CrossSectionalMinMaxStandardizer()
+            else:
+                logger.warning(f"未知的标准化器类型 {DEFAULT_STANDARDIZER}，跳过标准化")
         except ImportError:
-            logger.warning("无法导入标准化器，将跳过标准化")
-            STANDARDIZER = None
+            try:
+                from old_code.strategies.standardizers import CrossSectionalZScoreStandardizer
+                STANDARDIZER = CrossSectionalZScoreStandardizer()
+            except ImportError:
+                logger.warning("无法导入任何标准化器，将跳过标准化")
+                STANDARDIZER = None
+    except Exception as e:
+        logger.warning(f"创建标准化器失败: {e}")
+        STANDARDIZER = None
 
     if len(FACTOR_NAMES) == 1:
         logger.info("单因子模式")
