@@ -102,11 +102,14 @@ def calculate_rank_ic_series(factor_data: pd.DataFrame,
     ic_by_date: pd.Series = factor_data.groupby(level='date').apply(
         _calculate_spearman_for_group, return_col=return_col)
 
-    # 报告 NaN 数量
-    nan_count = ic_by_date.isna().sum()
-    total_count = len(ic_by_date)
-    if nan_count == total_count and total_count > 0:
-        logging.warning(f"  > ⚠️ [calculate_rank_ic_series] 所有 {total_count} 个日期的 IC 都是 NaN！")
+    # 报告 NaN 数量（显式聚合为标量，避免布尔歧义）
+    ic_nan_mask = pd.isna(ic_by_date).to_numpy()
+    nan_count = int(ic_nan_mask.sum())
+    total_count = int(ic_nan_mask.size)
+
+    if total_count > 0 and nan_count == total_count:
+        logging.warning(
+            f"  > ⚠️ [calculate_rank_ic_series] 所有 {total_count} 个日期的 IC 都是 NaN！")
 
     ic_by_date = ic_by_date.dropna()
     ic_by_date.name = f'rank_ic_{period}d'

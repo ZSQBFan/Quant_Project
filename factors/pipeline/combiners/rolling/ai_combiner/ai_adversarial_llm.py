@@ -5,6 +5,7 @@
 """
 
 import pandas as pd
+import numpy as np
 import logging
 import json
 import re
@@ -181,12 +182,13 @@ class AdversarialLLMCombiner(RollingCalculatorBase):
         raise ValueError(f"无法解析LLM响应为有效的JSON格式: {response_text}")
 
     def _calculate_payload_for_day(
-            self, historical_data_window: pd.DataFrame) -> Dict[str, float]:
+            self, historical_data_window: pd.DataFrame, current_date: pd.Timestamp = None) -> Dict[str, float]:
         """
         使用多智能体对抗机制计算因子权重。
 
         Args:
             historical_data_window: 历史数据窗口
+            current_date: 当前计算日期（本方法中暂未使用，保留接口兼容性）
 
         Returns:
             因子权重字典
@@ -222,10 +224,26 @@ class AdversarialLLMCombiner(RollingCalculatorBase):
                 else:
                     continue
 
+            # 安全提取因子值 Series (处理重复列)
+            if isinstance(historical_data_window[fname], pd.DataFrame):
+                logging.warning(f"因子 {fname} 存在重复列，将使用第一列。")
+                factor_series = historical_data_window[fname].iloc[:, 0]
+            else:
+                factor_series = historical_data_window[fname]
+
+            # 安全提取收益率 Series (处理重复列)
+            if isinstance(historical_data_window[return_col], pd.DataFrame):
+                logging.warning(f"收益列 {return_col} 存在重复列，将使用第一列。")
+                return_series = historical_data_window[return_col].iloc[:, 0]
+            else:
+                return_series = historical_data_window[return_col]
+
             # 计算 IC 序列和统计指标
-            ic_data = historical_data_window[[
-                fname, return_col
-            ]].rename(columns={fname: 'factor_value'})
+            ic_data = pd.DataFrame({
+                'factor_value': factor_series,
+                return_col: return_series
+            })
+            
             ic_series = metrics.calculate_rank_ic_series(
                 ic_data.dropna(), return_period)
             ic_stats = metrics.analyze_ic_statistics(ic_series)
@@ -389,14 +407,34 @@ class AdversarialLLMCombiner(RollingCalculatorBase):
             合成后的因子值 Series
         """
         try:
-            # 将权重字典转换为 Series 并对其索引
-            weights = pd.Series(payload).reindex(daily_factors.columns,
-                                                 fill_value=0)
+            # 处理日度因子切片退化为 Series 的场景，确保保持行向量形态
+            if isinstance(daily_factors, pd.Series):
+                daily_factors = daily_factors.to_frame().T
+                # Series.name 常用于资产ID，尽量保持索引含义
+                if daily_factors.index.name is None:
+                    daily_factors.index.name = 'asset'
 
-            # 归一化权重确保绝对值总和为1
-            weight_abs_sum = weights.abs().sum()
+            if daily_factors.empty:
+                logging.warning("因子合成失败: 当日因子为空，跳过。")
+                return None
+
+            # 将权重载荷安全转换为数值型 Series，过滤掉非数值/无穷/NaN
+            weights = pd.Series(payload)
+            weights = pd.to_numeric(weights, errors="coerce")
+            weights = weights.replace([np.inf, -np.inf], np.nan).fillna(0)
+            weights = weights.reindex(daily_factors.columns, fill_value=0).astype(float)
+
+            # 归一化权重确保绝对值总和为 1（使用显式标量避免 Series 布尔歧义）
+            weight_abs_sum = float(weights.abs().sum())
             if weight_abs_sum > 0:
                 weights = weights / weight_abs_sum
+            else:
+                # 权重为空或全 0 时回退等权
+                logging.warning("权重载荷为空或全为零，回退为等权合成。")
+                if len(daily_factors.columns) == 0:
+                    return None
+                weights = pd.Series(1.0, index=daily_factors.columns, dtype=float)
+                weights = weights / float(weights.abs().sum())
 
             # 计算加权合成因子
             combined_factor = (daily_factors * weights).sum(axis=1)

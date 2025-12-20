@@ -536,6 +536,19 @@ def run_factor_analysis(config_loader):
                             rolling_window_days=rolling_config.get('rolling_window_days', 250),
                             rebalance_frequency=rolling_config.get('rebalance_frequency', 'MS')
                         )
+                    elif calculator_type == 'AdversarialLLM':
+                        from factors.pipeline.combiners.rolling import AdversarialLLMCombiner
+                        roller = AdversarialLLMCombiner(
+                            factor_names=FACTOR_NAMES,
+                            rolling_window_days=rolling_config.get('rolling_window_days', 90),
+                            rebalance_frequency=rolling_config.get('rebalance_frequency', 'MS'),
+                            api_url=rolling_config.get('api_url'),
+                            api_key=rolling_config.get('api_key'),
+                            max_rounds=rolling_config.get('max_rounds', 2),
+                            include_factor_values=rolling_config.get('include_factor_values', False),
+                            include_conversation_history=rolling_config.get('include_conversation_history', False),
+                            allow_negative_weights=rolling_config.get('allow_negative_weights', True)
+                        )
                     else:
                         raise ValueError(f"未知的 calculator_type: {calculator_type}")
 

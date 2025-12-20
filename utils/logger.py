@@ -65,7 +65,7 @@ def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None):
 
     # 日志级别配置
     if log_level is None:
-        log_level = logging.INFO
+        log_level = logging.DEBUG
 
     # 检测是否在主进程中
     is_main = _is_main_process()
