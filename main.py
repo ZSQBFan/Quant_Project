@@ -49,6 +49,18 @@ def main():
     logger.info(f"📁 正在加载配置文件（目录: {args.config_dir}）...")
     config_loader = load_config(args.config_dir)
 
+    # 3.1 动态调整日志等级
+    logging_config = config_loader.load_logging()
+    if logging_config:
+        new_level = logging_config.get('level', 'INFO')
+        logger.info(f"⚙️ 正在根据配置文件调整日志等级为: {new_level}")
+        setup_logging(
+            log_dir=logging_config.get('log_dir', 'output/logs'),
+            log_prefix=logging_config.get('log_prefix', 'main'),
+            log_level=new_level,
+            force=True
+        )
+
     # 4. 根据模式执行
     if args.mode == 'list_components':
         logger.info("📋 列出所有已注册组件")

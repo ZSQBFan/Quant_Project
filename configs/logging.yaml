@@ -1,0 +1,9 @@
+# 日志配置
+# 可选级别: DEBUG, INFO, WARNING, ERROR, CRITICAL
+level: INFO
+
+# 日志文件保存目录
+log_dir: output/logs
+
+# 日志文件名前缀
+log_prefix: main

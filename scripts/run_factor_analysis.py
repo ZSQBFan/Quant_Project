@@ -47,6 +47,20 @@ def run_factor_analysis(config_loader):
     Args:
         config_loader: 配置加载器实例
     """
+    # =========================================================================
+    # 0. 动态调整日志等级
+    # =========================================================================
+    from utils.logger import setup_logging
+    logging_config = config_loader.load_logging()
+    if logging_config:
+        new_level = logging_config.get('level', 'INFO')
+        setup_logging(
+            log_dir=logging_config.get('log_dir', 'output/logs'),
+            log_prefix=logging_config.get('log_prefix', 'factor_analysis'),
+            log_level=new_level,
+            force=True
+        )
+
     logger.info("=" * 60)
     logger.info("开始因子分析流程...")
     logger.info("=" * 60)

@@ -584,6 +584,33 @@ class ConfigLoader:
             return self._load_yaml('data/calendar.yaml')
         return {}
 
+    def load_logging(self) -> Dict[str, Any]:
+        """
+        加载日志配置
+
+        Returns:
+            日志配置字典
+        """
+        # 日志配置文件通常位于 configs/logging.yaml
+        config = self._load_yaml('logging.yaml')
+        
+        # 默认值
+        default_config = {
+            'level': 'INFO',
+            'log_dir': 'output/logs',
+            'log_prefix': 'main'
+        }
+        
+        if not config:
+            return default_config
+            
+        # 合并默认值
+        for key, value in default_config.items():
+            if key not in config:
+                config[key] = value
+                
+        return config
+
     # ========================================================================
     # Pipeline 组件配置加载
     # ========================================================================

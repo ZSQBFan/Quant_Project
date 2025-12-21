@@ -47,7 +47,7 @@ def _is_main_process():
         return True  # 如果无法检测，假设是主进程
 
 
-def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None):
+def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None, force=False):
     """
     配置全局日志系统，生成带时间戳的唯一日志文件。
     在多进程环境中，子进程只会使用控制台日志，不创建文件。
@@ -56,11 +56,12 @@ def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None):
         log_dir (str, optional): 存放日志文件的目录。默认为 'output/logs'。
         log_prefix (str, optional): 日志文件名的前缀。默认为 'run'。
         log_level (int, optional): 日志级别。默认为 logging.INFO。
+        force (bool, optional): 是否强制重新初始化。默认为 False。
     """
     global _logging_initialized, _initialized_log_path
 
-    # 如果已经初始化过
-    if _logging_initialized:
+    # 如果已经初始化过，且不强制重新初始化
+    if _logging_initialized and not force:
         return
 
     # 日志级别配置
