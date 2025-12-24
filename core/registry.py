@@ -309,17 +309,12 @@ def list_all_components() -> Dict[str, list]:
 
 
 def print_registry_stats():
-    """打印注册表统计信息"""
+    """输出注册表统计信息到日志（避免 print 污染控制台）。"""
     stats = registry.get_stats()
-    print("\n" + "="*60)
-    print("组件注册表统计")
-    print("="*60)
+    logger = logging.getLogger(__name__)
+    logger.debug("组件注册表统计：")
     for category, count in stats.items():
-        components = registry.list_components(category)
-        print(f"{category:20s}: {count:3d} 个组件")
-        if count > 0 and count <= 10:
-            print(f"  └─ {', '.join(components)}")
-    print("="*60 + "\n")
+        logger.debug(f"- {category}: {count} 个组件")
 
 
 # ============================================================================

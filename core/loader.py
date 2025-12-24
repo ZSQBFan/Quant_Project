@@ -136,106 +136,14 @@ class ModuleLoader:
         }
     
     def _print_stats(self):
-        """打印详细的模块加载统计信息"""
+        """输出详细的模块加载统计信息（写入日志，避免 print 污染控制台）。"""
         if not self.package_stats:
-            print("暂无加载的模块统计信息")
+            logger.debug("暂无加载的模块统计信息")
             return
-            
-        print("=" * 60)
-        print("模块加载统计")
-        print("=" * 60)
-        
-        # 构建树形结构数据
-        tree_data = {}
-        
-        # 处理每个包和其模块
-        for package_name, stats in self.package_stats.items():
-            modules = stats['modules']
-            
-            # 解析包名路径
-            path_parts = package_name.split('.')
-            current = tree_data
-            
-            # 构建目录结构
-            for i, part in enumerate(path_parts):
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-                
-                # 如果是最后一个路径部分，添加模块
-                if i == len(path_parts) - 1:
-                    current['__modules__'] = modules
-                    current['__package_name__'] = package_name
-        
-        # 递归打印树形结构
-        def print_tree(node, prefix="", is_last=True, level=0):
-            """递归打印树形结构"""
-            items = list(node.items())
-            # 过滤掉特殊键
-            items = [(k, v) for k, v in items if not k.startswith('__')]
-            
-            for i, (name, value) in enumerate(items):
-                is_last_item = (i == len(items) - 1)
-                
-                # 选择合适的连接符
-                if level == 0:
-                    # 根级别
-                    if is_last_item:
-                        connector = "└── "
-                    else:
-                        connector = "├── "
-                    print(f"{prefix}{connector}{name}")
-                else:
-                    # 子级别
-                    if is_last_item:
-                        connector = "└── "
-                    else:
-                        connector = "├── "
-                    
-                    print(f"{prefix}{connector}{name}")
-                
-                # 递归打印子项
-                if isinstance(value, dict):
-                    # 打印模块
-                    if '__modules__' in value:
-                        modules = value['__modules__']
-                        if modules:
-                            module_prefix = prefix + ("    " if is_last_item else "│   ")
-                            
-                            for j, module in enumerate(modules):
-                                is_last_module = (j == len(modules) - 1)
-                                if is_last_module:
-                                    module_connector = "└── "
-                                else:
-                                    module_connector = "├── "
-                                print(f"{module_prefix}{module_connector}{module}")
-                    
-                    # 递归打印子目录
-                    sub_node = {k: v for k, v in value.items() if not k.startswith('__')}
-                    if sub_node:
-                        sub_prefix = prefix + ("    " if is_last_item else "│   ")
-                        print_tree(sub_node, sub_prefix, is_last_item, level + 1)
-        
-        # 打印根结构
-        print_tree(tree_data)
-        
-        print("=" * 60)
-        
-        # 显示每个包的模块计数
-        print("📊 各包模块计数：")
-        for package_name, stats in sorted(self.package_stats.items()):
-            count = stats['count']
-            # 格式化输出，保持对齐
-            print(f"✅ {package_name:<35} : {count:>2} 个模块")
-                
-        print("=" * 60)
-        
-        # 显示总计信息
+
         total_packages = len(self.package_stats)
         total_modules = sum(stats['count'] for stats in self.package_stats.values())
-        
-        print(f"总计: {total_packages} 个包, {total_modules} 个模块")
-        print("=" * 60)
+        logger.debug(f"模块加载统计：{total_packages} 个包, {total_modules} 个模块")
 
 
 # 全局加载器实例，避免重复加载

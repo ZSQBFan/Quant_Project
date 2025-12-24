@@ -278,12 +278,15 @@ tensorboard_logs/
 output/
 factor_reports/
 bt_reports/
+bt_report/
 backtest_reports/
 data_export/
 reports/
 results/
 temp/
 tmp/
+bt_data/
+bt/
 
 # Trading logs
 trade_logs/
@@ -299,6 +302,12 @@ alpha_cache/
 *.html
 !templates/*.html
 !static/*.html
+
+# AI/Assistant
+.gemini/
+.claude/
+.roo/
+.continue/
 
 # ========================================
 # Database

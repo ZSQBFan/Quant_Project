@@ -46,14 +46,14 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
     返回:
         (cerebro, results) 元组
     """
-    print("=" * 60)
-    print("🚀 Backtrader MVP 回测系统启动 (正确修复版本)")
-    print("=" * 60)
+    # print("=" * 60)
+    # print("🚀 Backtrader MVP 回测系统启动 (正确修复版本)")
+    # print("=" * 60)
     
     # ========================================
     # 1. 读取配置
     # ========================================
-    print("\n[1/6] 📖 读取配置...")
+    # print("\n[1/6] 📖 读取配置...")
     
     with open(config_path, encoding='utf-8') as f:
         strat_conf = yaml.safe_load(f)
@@ -70,32 +70,32 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
     start_date = backtest_config.get('start_date', '2024-01-01')
     end_date = backtest_config.get('end_date', '2024-12-31')
     
-    print(f"  策略名称: {strat_conf['strategy']['name']}")
-    print(f"  初始资金: {broker_conf['initial_cash']:,}")
-    print(f"  佣金率: {broker_conf['commission']['rate']:.4f}")
-    print(f"  调仓日数量: {len(trading_days)}")
-    print(f"  选股数量: {strat_conf['pipeline']['selector']['params']['n']}")
-    print(f"  回测时间范围: {start_date} 到 {end_date}")
+    # print(f"  策略名称: {strat_conf['strategy']['name']}")
+    # print(f"  初始资金: {broker_conf['initial_cash']:,}")
+    # print(f"  佣金率: {broker_conf['commission']['rate']:.4f}")
+    # print(f"  调仓日数量: {len(trading_days)}")
+    # print(f"  选股数量: {strat_conf['pipeline']['selector']['params']['n']}")
+    # print(f"  回测时间范围: {start_date} 到 {end_date}")
     
     # 获取止损阈值
     stop_loss_threshold = strat_conf['strategy'].get('stop_loss', -0.10)
-    print(f"  止损阈值: {stop_loss_threshold:.0%}")
+    # print(f"  止损阈值: {stop_loss_threshold:.0%}")
     
     # ========================================
     # 2. 初始化 Cerebro 引擎
     # ========================================
-    print("\n[2/6] ⚙️ 初始化回测引擎...")
+    # print("\n[2/6] ⚙️ 初始化回测引擎...")
     
     cerebro = bt.Cerebro()
     cerebro.broker.setcash(broker_conf['initial_cash'])
     cerebro.broker.setcommission(commission=broker_conf['commission']['rate'])
     
-    print(f"  ✅ Cerebro 引擎已初始化")
+    # print(f"  ✅ Cerebro 引擎已初始化")
     
     # ========================================
     # 3. 加载数据 - 关键修复：使用时间范围裁剪
     # ========================================
-    print("\n[3/6] 📊 加载数据（时间范围裁剪）...")
+    # print("\n[3/6] 📊 加载数据（时间范围裁剪）...")
     
     data_dir = './bt/data_export/'
     if not os.path.exists(data_dir):
@@ -109,7 +109,7 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
     if not stock_files:
         raise FileNotFoundError(f"数据目录为空: {data_dir}")
     
-    print(f"  发现 {len(stock_files)} 个股票数据文件")
+    # print(f"  发现 {len(stock_files)} 个股票数据文件")
     
     # 🔧 关键修复：转换时间范围
     start_dt = pd.to_datetime(start_date)
@@ -154,12 +154,12 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
                 
                 if df.empty:
                     data_stats['empty_after_clip'] += 1
-                    print(f"  ⚠️ 跳过 {s_file}: 裁剪后无数据 ({original_rows} -> 0 行)")
+                    # print(f"  ⚠️ 跳过 {s_file}: 裁剪后无数据 ({original_rows} -> 0 行)")
                     continue
             
             if df.empty:
                 data_stats['empty_after_clip'] += 1
-                print(f"  ⚠️ 跳过 {s_file}: 数据为空")
+                # print(f"  ⚠️ 跳过 {s_file}: 数据为空")
                 continue
             
             ticker = s_file.replace('.parquet', '')
@@ -169,29 +169,30 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
             total_data_points += len(df)
             
             # 🔧 显示处理结果
-            if needs_clipping:
-                print(f"  ✅ 加载 {ticker}: {len(df)} 天数据 (裁剪后: {file_start.date()} - {file_end.date()} -> {df.index.min().date()} - {df.index.max().date()})")
-            else:
-                print(f"  ✅ 加载 {ticker}: {len(df)} 天数据 ({file_start.date()} - {file_end.date()})")
+            # if needs_clipping:
+            #     print(f"  ✅ 加载 {ticker}: {len(df)} 天数据 (裁剪后: {file_start.date()} - {file_end.date()} -> {df.index.min().date()} - {df.index.max().date()})")
+            # else:
+            #     print(f"  ✅ 加载 {ticker}: {len(df)} 天数据 ({file_start.date()} - {file_end.date()})")
             
         except Exception as e:
-            print(f"  ❌ 加载 {s_file} 失败: {e}")
+            # print(f"  ❌ 加载 {s_file} 失败: {e}")
+            pass
     
     # 数据加载统计
-    print(f"\n  📊 数据加载统计:")
-    print(f"    总文件数: {data_stats['total_files']}")
-    print(f"    成功加载: {loaded_count}")
-    print(f"    时间裁剪: {data_stats['time_clipped']}")
-    print(f"    裁剪后为空: {data_stats['empty_after_clip']}")
-    print(f"    总数据点: {total_data_points}")
-    print(f"    平均每股票: {total_data_points/loaded_count:.0f} 天")
+    # print(f"\n  📊 数据加载统计:")
+    # print(f"    总文件数: {data_stats['total_files']}")
+    # print(f"    成功加载: {loaded_count}")
+    # print(f"    时间裁剪: {data_stats['time_clipped']}")
+    # print(f"    裁剪后为空: {data_stats['empty_after_clip']}")
+    # print(f"    总数据点: {total_data_points}")
+    # print(f"    平均每股票: {total_data_points/loaded_count:.0f} 天")
     
-    print(f"\n  📅 调仓日过滤:")
-    print(f"    原始调仓日: {len(trading_days)} 个")
-    print(f"    有效调仓日: {len(valid_trading_days)} 个")
-    if valid_trading_days:
-        print(f"    第一个调仓日: {valid_trading_days[0]}")
-        print(f"    最后一个调仓日: {valid_trading_days[-1]}")
+    # print(f"\n  📅 调仓日过滤:")
+    # print(f"    原始调仓日: {len(trading_days)} 个")
+    # print(f"    有效调仓日: {len(valid_trading_days)} 个")
+    # if valid_trading_days:
+    #     print(f"    第一个调仓日: {valid_trading_days[0]}")
+    #     print(f"    最后一个调仓日: {valid_trading_days[-1]}")
     
     if loaded_count == 0:
         raise ValueError("没有成功加载任何数据")
@@ -199,7 +200,7 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
     # ========================================
     # 4. 组装策略组件
     # ========================================
-    print("\n[4/6] 🔧 组装策略组件...")
+    # print("\n[4/6] 🔧 组装策略组件...")
     
     # Pipeline 组件
     selector = TopNSelector(top_n=strat_conf['pipeline']['selector']['params']['n'])
@@ -221,10 +222,10 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
         triggers=triggers
     )
     
-    print(f"  ✅ 选股器: TopNSelector (N={strat_conf['pipeline']['selector']['params']['n']})")
-    print(f"  ✅ 分配器: EqualWeightAllocator")
-    print(f"  ✅ 资金管理: FullPositionManager (95%)")
-    print(f"  ✅ 触发器: StopLoss, RebalanceDay")
+    # print(f"  ✅ 选股器: TopNSelector (N={strat_conf['pipeline']['selector']['params']['n']})")
+    # print(f"  ✅ 分配器: EqualWeightAllocator")
+    # print(f"  ✅ 资金管理: FullPositionManager (95%)")
+    # print(f"  ✅ 触发器: StopLoss, RebalanceDay")
     
     # 添加分析器
     cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
@@ -234,33 +235,33 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
     # ========================================
     # 5. 运行回测
     # ========================================
-    print("\n[5/6] 🏃 运行回测...")
-    print("  (这可能需要一些时间...)")
+    # print("\n[5/6] 🏃 运行回测...")
+    # print("  (这可能需要一些时间...)")
     
     # 验证数据时间范围
-    if cerebro.datas:
-        first_data = cerebro.datas[0]
-        if len(first_data) > 0:
-            data_start = first_data.datetime.date(1-len(first_data))
-            data_end = first_data.datetime.date(0)
-            print(f"  📅 实际回测时间范围: {data_start} - {data_end}")
-            print(f"  📅 配置回测范围: {start_date} - {end_date}")
-            print(f"  📊 回测天数: {len(first_data)} 天")
-            
-            # 计算调仓日覆盖度
-            covered_rebalance_days = sum(1 for d in valid_trading_days
-                                       if data_start <= pd.to_datetime(d).date() <= data_end)
-            print(f"  📅 调仓日覆盖度: {covered_rebalance_days}/{len(valid_trading_days)} ({covered_rebalance_days/len(valid_trading_days)*100:.1f}%)")
+    # if cerebro.datas:
+    #     first_data = cerebro.datas[0]
+    #     if len(first_data) > 0:
+    #         data_start = first_data.datetime.date(1-len(first_data))
+    #         data_end = first_data.datetime.date(0)
+    #         print(f"  📅 实际回测时间范围: {data_start} - {data_end}")
+    #         print(f"  📅 配置回测范围: {start_date} - {end_date}")
+    #         print(f"  📊 回测天数: {len(first_data)} 天")
+    #
+    #         # 计算调仓日覆盖度
+    #         covered_rebalance_days = sum(1 for d in valid_trading_days
+    #                                    if data_start <= pd.to_datetime(d).date() <= data_end)
+    #         print(f"  📅 调仓日覆盖度: {covered_rebalance_days}/{len(valid_trading_days)} ({covered_rebalance_days/len(valid_trading_days)*100:.1f}%)")
     
     results = cerebro.run()
     strat = results[0]
     
-    print("  ✅ 回测完成")
+    # print("  ✅ 回测完成")
     
     # ========================================
     # 6. 生成报告
     # ========================================
-    print("\n[6/6] 📝 生成报告...")
+    # print("\n[6/6] 📝 生成报告...")
     
     # 提取分析器结果
     analyzers = {
@@ -269,48 +270,15 @@ def run_backtest(config_path: str = 'config/strategy_main.yaml') -> tuple:
         'trades': strat.analyzers.trades.get_analysis()
     }
     
-    # 打印摘要
-    print("\n" + "=" * 60)
-    print("📊 回测结果摘要")
-    print("=" * 60)
-    
-    initial_cash = broker_conf['initial_cash']
-    final_value = cerebro.broker.getvalue()
-    total_return = (final_value / initial_cash - 1) * 100
-    
-    print(f"  初始资金: {initial_cash:>15,.2f}")
-    print(f"  最终净值: {final_value:>15,.2f}")
-    print(f"  总收益率: {total_return:>14.2f}%")
-    
-    # 交易统计
-    trades = analyzers['trades']
-    total_trades = trades.get('total', {}).get('total', 0)
-    print(f"  总交易次数: {total_trades}")
-    
-    sharpe = analyzers['sharpe'].get('sharperatio')
-    if sharpe is not None:
-        print(f"  Sharpe Ratio: {sharpe:>11.3f}")
-    
-    max_dd = analyzers['drawdown'].get('max', {}).get('drawdown')
-    if max_dd is not None:
-        print(f"  最大回撤: {max_dd:>13.2f}%")
-    
-    # 关键信息总结
-    print(f"\n🔍 调试信息:")
-    print(f"  数据源数量: {len(cerebro.datas)}")
-    print(f"  回测时间范围: {start_date} - {end_date}")
-    print(f"  有效调仓日数量: {len(valid_trading_days)}")
-    print(f"  止损阈值: {stop_loss_threshold:.1%}")
-    
     # 生成 HTML 报告
     reporter = ReportGenerator()
     report_path = reporter.generate(cerebro, strat, analyzers)
     
     print(f"  ✅ 报告已生成: {report_path}")
     
-    print("\n" + "=" * 60)
+    # print("\n" + "=" * 60)
     print("✅ 回测流程完成！")
-    print("=" * 60)
+    # print("=" * 60)
     
     return cerebro, results
 

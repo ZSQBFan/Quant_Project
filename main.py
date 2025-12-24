@@ -81,9 +81,9 @@ def main():
         from scripts.run_backtest import run_backtest
         run_backtest(config_loader)
 
-    logger.info("="*60)
-    logger.info("✅ 程序执行完成")
-    logger.info("="*60)
+    # 回测模式的结束提示由回测流程自身输出；其他模式不输出控制台尾部块，避免冗余
+    if args.mode != 'backtest':
+        logger.debug("✅ 程序执行完成")
 
 
 if __name__ == '__main__':

@@ -6,6 +6,8 @@
 
 import os
 import logging
+import re
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +44,9 @@ def run_backtest(config_loader):
             force=True
         )
 
-    logger.info("=" * 60)
-    logger.info("开始回测流程...")
-    logger.info("=" * 60)
+    logger.debug("=" * 60)
+    logger.debug("开始回测流程...")
+    logger.debug("=" * 60)
 
     # 加载配置
     universe = config_loader.load_universe()
@@ -62,96 +64,59 @@ def run_backtest(config_loader):
 
     # 检查是否启用全股票模式
     if data_config.use_all_stocks:
-        logger.info("🎯 启用全股票模式，将从数据源获取全部股票代码...")
-        
-        # 按优先级尝试获取全部股票代码
-        all_symbols = []
-        provider_used = None
-        
-        for provider_name in data_config.provider_priority:
-            if provider_name in providers_config and providers_config[provider_name].enabled:
-                provider_config = providers_config[provider_name]
-                
-                try:
-                    # 动态导入数据提供者类
-                    if provider_name == 'sqlite':
-                        from data.providers import SQLiteDataProvider
-                        provider_class = SQLiteDataProvider
-                    elif provider_name == 'tushare':
-                        from data.providers import TushareDataProvider
-                        provider_class = TushareDataProvider
-                    elif provider_name == 'akshare':
-                        from data.providers import AkshareDataProvider
-                        provider_class = AkshareDataProvider
-                    else:
-                        logger.warning(f"未知的数据提供者: {provider_name}")
-                        continue
-                    
-                    # 创建提供者实例
-                    provider_kwargs = provider_config.config.copy()
-                    
-                    # 处理特殊配置
-                    if provider_name == 'tushare' and 'token' not in provider_kwargs:
-                        # 如果是tushare且没有配置token，尝试从环境变量获取
-                        import os
-                        provider_kwargs['token'] = os.getenv('TUSHARE_TOKEN')
-                        if not provider_kwargs['token']:
-                            logger.warning("Tushare需要token配置，跳过...")
-                            continue
-                    elif provider_name == 'sqlite':
-                        # SQLite需要特殊的配置处理
-                        if 'connection' in provider_kwargs and 'tables' in provider_kwargs:
-                            conn_config = provider_kwargs['connection']
-                            tables_config = provider_kwargs['tables']
-                            daily_config = tables_config.get('daily', {})
-                            
-                            provider_kwargs = {
-                                'db_path': conn_config.get('db_path'),
-                                'table_name': daily_config.get('table_name', 'JY_t_price_daily'),
-                                'column_mapping': daily_config.get('column_mapping', {})
-                            }
-                    
-                    provider_instance = provider_class(**provider_kwargs)
-                    
-                    # 智能选择目标日期
-                    target_date = None
-                    if provider_name in ['sqlite']:
-                        # 对于数据库，使用开始日期避免幸存者偏差
-                        target_date = START_DATE
-                        logger.info(f"[全股票模式] 使用开始日期 {target_date} 以避免幸存者偏差")
-                    else:
-                        # 对于外部数据源，使用当前日期
-                        logger.info(f"[全股票模式] {provider_name} 不支持历史查询，使用当前日期")
-                    
-                    # 获取全部股票代码
-                    logger.info(f"[全股票模式] 尝试使用 {provider_name} 获取全部股票代码...")
-                    all_symbols = provider_instance.get_all_symbols(target_date)
-                    
-                    if all_symbols:
-                        provider_used = provider_name
-                        logger.info(f"[全股票模式] 成功从 {provider_name} 获取到 {len(all_symbols)} 只股票")
-                        break
-                    else:
-                        logger.warning(f"[全股票模式] {provider_name} 未返回任何股票代码")
-                        
-                except Exception as e:
-                    logger.error(f"[全股票模式] 使用 {provider_name} 获取股票代码失败: {e}")
-                    continue
-        
-        if not all_symbols:
+        logger.info("🎯 启用全股票模式，将从缓存数据库获取全部股票代码...")
+
+        # 直接从缓存数据库 quant_data.db 获取股票列表，实现模块分离
+        import sqlite3
+
+        try:
+            conn = sqlite3.connect(DB_PATH)
+
+            # 查询缓存数据库中的所有股票代码
+            query = f"""
+                SELECT DISTINCT code
+                FROM stock_daily_prices
+                WHERE date BETWEEN '{START_DATE}' AND '{END_DATE}'
+            """
+            cursor = conn.execute(query)
+            all_symbols = [row[0] for row in cursor.fetchall()]
+
+            if all_symbols:
+                universe = all_symbols
+                logger.info(f"[全股票模式] ✅ 从缓存数据库获取成功！")
+                logger.info(f"  - 股票数量: {len(universe)}")
+
+                # 获取数据统计信息
+                stats_query = f"""
+                    SELECT COUNT(*) as total_records,
+                           COUNT(DISTINCT date) as date_count
+                    FROM stock_daily_prices
+                    WHERE date BETWEEN '{START_DATE}' AND '{END_DATE}'
+                """
+                stats_cursor = conn.execute(stats_query)
+                stats = stats_cursor.fetchone()
+                logger.info(f"  - 总记录数: {stats[0]}")
+                logger.info(f"  - 日期数量: {stats[1]}")
+            else:
+                error_msg = (
+                    "全股票模式启用但缓存数据库中没有数据。请检查：\n"
+                    f"1. 缓存数据库路径是否正确: {DB_PATH}\n"
+                    "2. 是否已运行 --download_data 模式下载数据\n"
+                    f"3. 日期范围是否正确: {START_DATE} ~ {END_DATE}"
+                )
+                logger.critical(error_msg)
+                raise RuntimeError(error_msg)
+
+            conn.close()
+            logger.info(f"✅ 全股票模式成功，已从缓存数据库获取股票池: {len(universe)} 只股票")
+
+        except sqlite3.Error as e:
             error_msg = (
-                "全股票模式启用但无法获取股票代码。请检查：\n"
-                "1. 数据源配置是否正确\n"
-                "2. 网络连接是否正常\n"
-                "3. API密钥是否有效（如Tushare）\n"
-                "4. 至少有一个数据源可用"
+                f"从缓存数据库获取股票列表失败: {e}\n"
+                f"请确保缓存数据库存在: {DB_PATH}"
             )
             logger.critical(error_msg)
             raise RuntimeError(error_msg)
-        
-        # 替换股票池
-        universe = all_symbols
-        logger.info(f"✅ 全股票模式成功，已替换股票池: {provider_used} -> {len(universe)} 只股票")
     else:
         logger.info(f"📋 使用配置文件股票池，共 {len(universe)} 只股票")
 
@@ -167,7 +132,7 @@ def run_backtest(config_loader):
     # =========================================================================
     # 1. 初始化数据管理器并获取因子数据
     # =========================================================================
-    logger.info("\n--- 步骤 1: 初始化数据 ---")
+    logger.debug("\n--- 步骤 1: 初始化数据 ---")
 
     try:
         from data import DataProviderManager
@@ -180,21 +145,22 @@ def run_backtest(config_loader):
     # 从配置构建数据源配置
     DATA_PROVIDERS_CONFIG = []
 
-    # 检查 sqlite 配置
-    sqlite_cfg = providers_config.get('sqlite')
-    if sqlite_cfg and sqlite_cfg.enabled:
-        conn_cfg = sqlite_cfg.config.get('connection', {})
-        tables_cfg = sqlite_cfg.config.get('tables', {}).get('daily', {})
-        
-        # 应用完整的配置处理逻辑，包括column_mapping
-        processed_kwargs = {
-            'db_path': conn_cfg.get('db_path'),
-            'table_name': tables_cfg.get('table_name', 'JY_t_price_daily'),
-            'column_mapping': tables_cfg.get('column_mapping', {})
-        }
-        
-        DATA_PROVIDERS_CONFIG.append((SQLiteDataProvider, processed_kwargs))
-        logger.info(f"✅ SQLite数据提供者配置已从配置文件加载: db_path={processed_kwargs['db_path']}")
+    # 检查所有启用的数据提供者，寻找 sqlite 类型的提供者
+    for provider_name, provider_cfg in providers_config.items():
+        if provider_cfg.enabled and provider_name.startswith('sqlite'):
+            conn_cfg = provider_cfg.config.get('connection', {})
+            tables_cfg = provider_cfg.config.get('tables', {}).get('daily', {})
+            
+            # 应用完整的配置处理逻辑，包括column_mapping
+            processed_kwargs = {
+                'db_path': conn_cfg.get('db_path'),
+                'table_name': tables_cfg.get('table_name', 'JY_t_price_daily'),
+                'column_mapping': tables_cfg.get('column_mapping', {}),
+                'date_format': tables_cfg.get('date_format', '%Y-%m-%d')
+            }
+            
+            DATA_PROVIDERS_CONFIG.append((provider_name, SQLiteDataProvider, processed_kwargs))
+            logger.info(f"✅ SQLite数据提供者配置已从配置文件加载: {provider_name}, db_path={processed_kwargs['db_path']}")
 
     # 如果没有配置，抛出异常
     if not DATA_PROVIDERS_CONFIG:
@@ -227,7 +193,7 @@ def run_backtest(config_loader):
     # =========================================================================
     # 2. 导出数据供 Backtrader 使用
     # =========================================================================
-    logger.info("\n--- 步骤 2: 导出 Backtrader 数据 ---")
+    logger.debug("\n--- 步骤 2: 导出 Backtrader 数据 ---")
 
     try:
         from backtest.data.exporter import BTDataExporter
@@ -238,60 +204,131 @@ def run_backtest(config_loader):
             logger.error("无法导入 BTDataExporter，回测终止")
             return
 
-    exporter = BTDataExporter(data_manager)
-
-    # 简单的等权因子（用于测试）
-    import pandas as pd
-    logger.info("生成测试用等权因子...")
-
-    # 获取所有数据
-    all_data = []
-    for symbol in universe[:50]:  # 限制股票数量用于测试
-        df = data_manager.get_dataframe(symbol, columns=['close'])
-        if df is not None and not df.empty:
-            df['asset'] = symbol
-            df['factor_value'] = 1.0  # 等权
-            all_data.append(df.reset_index())
-
-    if all_data:
-        factor_df = pd.concat(all_data, ignore_index=True)
-        factor_df.set_index(['date', 'asset'], inplace=True)
-        factor_series = factor_df['factor_value']
-
-        logger.info(f"导出数据，股票数: {len(universe[:50])}")
-        exporter.export(
-            universe=universe[:50],
-            start_date=START_DATE,
-            end_date=END_DATE,
-            factor_series=factor_series
-        )
+    # 获取因子数据导出配置
+    factor_analysis_config = config_loader.load_factor_analysis()
+    factor_data_dir = factor_analysis_config.output.get('export_composite_factor', {}).get('dir', 'temp/data_explore/')
+    
+    # =========================================================================
+    # 3. 检查因子数据路径是否存在并进行数据验证
+    # =========================================================================
+    logger.info(f"\n--- 检查因子数据路径: {factor_data_dir} ---")
+    
+    if not os.path.exists(factor_data_dir):
+        logger.warning(f"⚠️ 因子数据目录不存在: {factor_data_dir}")
+        parquet_files = []
     else:
-        logger.error("无法获取数据，回测终止")
-        return
+        # 检查目录中是否存在 .parquet 文件
+        parquet_files = [f for f in os.listdir(factor_data_dir) if f.endswith('.parquet')]
+    
+    if not parquet_files:
+        logger.warning(f"⚠️ 在 {factor_data_dir} 中未找到任何 .parquet 文件")
+        dates_in_files = []
+    else:
+        # 提取所有文件的日期
+        dates_in_files = []
+        date_pattern = re.compile(r'^(\d{4}-\d{2}-\d{2})\.parquet$')
+        
+        for f in parquet_files:
+            match = date_pattern.match(f)
+            if match:
+                try:
+                    date_str = match.group(1)
+                    date_obj = pd.to_datetime(date_str)
+                    dates_in_files.append(date_obj)
+                except Exception as e:
+                    logger.debug(f"无法解析文件名中的日期 {f}: {e}")
+                    continue
+            else:
+                logger.debug(f"跳过非日期格式文件: {f}")
+    
+    if dates_in_files:
+        min_date = min(dates_in_files)
+        max_date = max(dates_in_files)
+        logger.info(f"✅ 找到 {len(dates_in_files)} 个有效的因子数据文件")
+        logger.info(f"📊 文件日期范围: {min_date.strftime('%Y-%m-%d')} ~ {max_date.strftime('%Y-%m-%d')}")
+        
+        # 检查所需的日期范围
+        start_dt = pd.to_datetime(START_DATE)
+        end_dt = pd.to_datetime(END_DATE)
+        
+        if start_dt < min_date:
+            logger.warning(f"⚠️ 回测开始日期 {START_DATE} 早于因子数据最早日期 {min_date.strftime('%Y-%m-%d')}")
+        if end_dt > max_date:
+            logger.warning(f"⚠️ 回测结束日期 {END_DATE} 晚于因子数据最晚日期 {max_date.strftime('%Y-%m-%d')}")
+        
+        # 检查是否至少有一部分数据是重叠的
+        if end_dt < min_date or start_dt > max_date:
+            logger.warning(f"⚠️ 回测日期范围 [{START_DATE}, {END_DATE}] 与因子数据日期范围无重叠")
+        
+    else:
+        logger.warning("⚠️ 无法从因子数据目录解析出任何有效日期，将尝试继续（可能导致回测无数据）")
+
+    exporter = BTDataExporter(data_manager, factor_data_dir=factor_data_dir)
+
+    logger.info(f"导出数据，股票数: {len(universe)}")
+    exporter.export(
+        universe=universe,
+        start_date=START_DATE,
+        end_date=END_DATE,
+        factor_series=None  # 自动从 factor_data_dir 加载
+    )
 
     # =========================================================================
-    # 3. 运行 Backtrader 回测
+    # 4. 运行 Backtrader 回测
     # =========================================================================
-    logger.info("\n--- 步骤 3: 运行 Backtrader ---")
+    logger.debug("\n--- 步骤 3: 运行 Backtrader ---")
 
     try:
         from old_code.bt.backtest import run_backtest as bt_run_backtest
-        cerebro, results = bt_run_backtest()
+
+        # 兼容旧版本签名：如果旧函数不支持 generate_report 参数，
+        # 则不要在本脚本里再次生成报告，避免“✅ 报告已生成 ...”重复。
+        import inspect
+        _bt_sig = None
+        try:
+            _bt_sig = inspect.signature(bt_run_backtest)
+        except Exception:
+            _bt_sig = None
+        _bt_supports_generate_report = bool(_bt_sig and 'generate_report' in _bt_sig.parameters)
+        _skip_report_generation = not _bt_supports_generate_report
+
+        # 移除 tqdm 进度条，恢复最原始的时间步打印
+        # 尽量禁用 old_code.bt.backtest 内部报告生成与结束提示（由本脚本统一输出，避免重复）
+        if _bt_supports_generate_report:
+            cerebro, results = bt_run_backtest(pbar=None, generate_report=False)
+        else:
+            cerebro, results = bt_run_backtest(pbar=None)
+
         logger.info("Backtrader 回测完成")
+
+        # 记录结束阶段需要用到的资金信息
+        bt_initial_value = getattr(getattr(cerebro, 'broker', None), 'startingcash', None)
+        try:
+            bt_final_value = cerebro.broker.getvalue() if getattr(cerebro, 'broker', None) is not None else None
+        except Exception:
+            bt_final_value = None
     except ImportError as e:
         logger.warning(f"导入 Backtrader 模块失败: {e}")
         logger.info("尝试使用内置简化回测...")
-        _run_simple_backtest(data_manager, universe[:50], START_DATE, END_DATE, INITIAL_CASH, OUTPUT_DIR)
+        report_path, simple_final_value = _run_simple_backtest(
+            data_manager,
+            universe[:50],
+            START_DATE,
+            END_DATE,
+            INITIAL_CASH,
+            OUTPUT_DIR,
+        )
+        if report_path:
+            logger.info(f"✅ 报告已生成: {report_path}")
+        logger.info("✅ 回测流程完成！")
         return
     except Exception as e:
         logger.error(f"Backtrader 回测失败: {e}", exc_info=True)
         return
 
     # =========================================================================
-    # 4. 生成报告
+    # 5. 生成报告
     # =========================================================================
-    logger.info("\n--- 步骤 4: 生成报告 ---")
-
     try:
         from backtest.reports import ReportGenerator
     except ImportError:
@@ -301,7 +338,7 @@ def run_backtest(config_loader):
             logger.warning("无法导入报告生成器")
             ReportGenerator = None
 
-    if ReportGenerator is not None and cerebro is not None:
+    if not _skip_report_generation and ReportGenerator is not None and cerebro is not None:
         report_gen = ReportGenerator(output_dir=OUTPUT_DIR)
 
         # 获取分析器结果
@@ -313,13 +350,71 @@ def run_backtest(config_loader):
                     analyzers['sharpe'] = strat.analyzers.sharpe.get_analysis()
                 if hasattr(strat.analyzers, 'drawdown'):
                     analyzers['drawdown'] = strat.analyzers.drawdown.get_analysis()
+                if hasattr(strat.analyzers, 'trades'):
+                    analyzers['trades'] = strat.analyzers.trades.get_analysis()
 
-        report_path = report_gen.generate(cerebro, strat if results else None, analyzers)
-        logger.info(f"报告已生成: {report_path}")
+        # 报告生成器内部会输出一次"✅ 报告已生成: ..."，此处不重复输出
+        _ = report_gen.generate(cerebro, strat if results else None, analyzers)
 
-    logger.info("=" * 60)
-    logger.info("回测流程执行完毕")
-    logger.info("=" * 60)
+    # =========================================================================
+    # 6. 输出回测结束的基本信息
+    # =========================================================================
+    
+    if cerebro is not None:
+        try:
+            # 获取基本资金信息
+            initial_cash = cerebro.broker.startingcash
+            final_value = cerebro.broker.getvalue()
+            total_return = (final_value / initial_cash - 1) * 100
+            absolute_return = final_value - initial_cash
+            
+            # 获取交易统计信息
+            total_trades = 0
+            if results and len(results) > 0:
+                strat = results[0]
+                if hasattr(strat, 'analyzers') and hasattr(strat.analyzers, 'trades'):
+                    trades_analysis = strat.analyzers.trades.get_analysis()
+                    total_trades = trades_analysis.get('total', {}).get('total', 0)
+            
+            # 获取风险指标
+            sharpe_ratio = "N/A"
+            max_drawdown = "N/A"
+            
+            if analyzers:
+                # Sharpe Ratio
+                sharpe_analysis = analyzers.get('sharpe', {})
+                if sharpe_analysis:
+                    sharpe_value = sharpe_analysis.get('sharperatio')
+                    if sharpe_value is not None:
+                        sharpe_ratio = f"{sharpe_value:.3f}"
+                
+                # 最大回撤
+                drawdown_analysis = analyzers.get('drawdown', {})
+                if drawdown_analysis:
+                    max_dd = drawdown_analysis.get('max', {}).get('drawdown')
+                    if max_dd is not None:
+                        max_drawdown = f"{max_dd:.2f}%"
+            
+            # 输出回测基本信息
+            logger.info("=" * 60)
+            logger.info("📊 本次回测基本信息")
+            logger.info("=" * 60)
+            logger.info(f"📅 回测期间: {START_DATE} ~ {END_DATE}")
+            logger.info(f"💰 初始资金: {initial_cash:,.2f} 元")
+            logger.info(f"💎 最终净值: {final_value:,.2f} 元")
+            logger.info(f"📈 绝对收益: {absolute_return:+,.2f} 元")
+            logger.info(f"📊 收益率: {total_return:+.2f}%")
+            logger.info(f"📉 最大回撤: {max_drawdown}")
+            logger.info(f"⚡ Sharpe比率: {sharpe_ratio}")
+            logger.info(f"🔄 交易次数: {total_trades}")
+            logger.info(f"🎯 股票池大小: {len(universe)} 只")
+            logger.info(f"💸 手续费率: {COMMISSION:.4f}")
+            logger.info("=" * 60)
+            
+        except Exception as e:
+            logger.warning(f"获取回测统计信息时出错: {e}")
+
+    logger.info("✅ 回测流程完成！")
 
 
 def _run_simple_backtest(data_manager, universe, start_date, end_date, initial_cash, output_dir):
@@ -329,7 +424,7 @@ def _run_simple_backtest(data_manager, universe, start_date, end_date, initial_c
     import pandas as pd
     import datetime
 
-    logger.info("运行简化回测...")
+    logger.debug("运行简化回测...")
 
     # 收集所有股票的收益率
     returns_list = []
@@ -342,7 +437,7 @@ def _run_simple_backtest(data_manager, universe, start_date, end_date, initial_c
 
     if not returns_list:
         logger.error("无法获取数据")
-        return
+        return None, None
 
     # 合并收益率
     returns_df = pd.concat(returns_list, axis=1)
@@ -359,11 +454,11 @@ def _run_simple_backtest(data_manager, universe, start_date, end_date, initial_c
     sharpe = portfolio_returns.mean() / portfolio_returns.std() * (252 ** 0.5) if portfolio_returns.std() > 0 else 0
     max_drawdown = ((portfolio_value.cummax() - portfolio_value) / portfolio_value.cummax()).max() * 100
 
-    logger.info(f"简化回测结果:")
-    logger.info(f"  总收益率: {total_return:.2f}%")
-    logger.info(f"  Sharpe Ratio: {sharpe:.3f}")
-    logger.info(f"  最大回撤: {max_drawdown:.2f}%")
-    logger.info(f"  最终净值: {portfolio_value.iloc[-1]:,.2f}")
+    logger.debug("简化回测结果:")
+    logger.debug(f"  总收益率: {total_return:.2f}%")
+    logger.debug(f"  Sharpe Ratio: {sharpe:.3f}")
+    logger.debug(f"  最大回撤: {max_drawdown:.2f}%")
+    logger.debug(f"  最终净值: {portfolio_value.iloc[-1]:,.2f}")
 
     # 生成简单报告
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -414,7 +509,9 @@ def _run_simple_backtest(data_manager, universe, start_date, end_date, initial_c
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
 
-    logger.info(f"简化报告已生成: {report_path}")
+    # 简化回测的报告路径由上层统一输出，避免结束阶段重复/冗余
+    logger.debug(f"简化报告已生成: {report_path}")
+    return report_path, float(portfolio_value.iloc[-1])
 
 
 if __name__ == '__main__':

@@ -33,6 +33,15 @@ class TqdmLoggingHandler(logging.Handler):
 _logging_initialized = False
 _initialized_log_path = None
 
+
+def _normalize_level(level) -> int:
+    """将 str/int 的日志级别统一转换为 int。"""
+    if isinstance(level, int):
+        return level
+    if isinstance(level, str):
+        return logging._nameToLevel.get(level.upper(), logging.INFO)
+    return logging.INFO
+
 def _is_main_process():
     """
     检测是否在主进程中运行。
@@ -67,6 +76,7 @@ def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None, force
     # 日志级别配置
     if log_level is None:
         log_level = logging.INFO
+    log_level_int = _normalize_level(log_level)
 
     # 检测是否在主进程中
     is_main = _is_main_process()
@@ -91,10 +101,19 @@ def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None, force
 
     # 3. 获取根日志记录器并配置
     logger = logging.getLogger()
-    logger.setLevel(log_level)
+    logger.setLevel(log_level_int)
 
     if logger.hasHandlers():
         logger.handlers.clear()
+
+    # 3.1 清理所有非 root logger 的 handlers，避免重复输出
+    # 典型症状：同一条 logger.info(...) 在控制台打印两次（相同前缀/格式）。
+    # 发生原因通常是某些模块/库给自己的 logger 单独 addHandler，
+    # 同时又向 root 传播（propagate=True），导致同一条记录被两个 handler 处理。
+    for _name, _lgr in list(logging.root.manager.loggerDict.items()):
+        if isinstance(_lgr, logging.Logger):
+            _lgr.handlers.clear()
+            _lgr.propagate = True
 
     # 4. 定义日志格式
     formatter = logging.Formatter(
@@ -105,18 +124,20 @@ def setup_logging(log_dir='output/logs', log_prefix='run', log_level=None, force
     file_handler = logging.FileHandler(log_file_path,
                                        mode='w',
                                        encoding='utf-8')
-    file_handler.setLevel(log_level)
+    file_handler.setLevel(log_level_int)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
     # 6. 创建 Tqdm 处理器，用于在控制台输出
     tqdm_handler = TqdmLoggingHandler()
-    tqdm_handler.setLevel(log_level)
+    # 控制台输出级别与全局日志级别一致（用户需要保留初始化与过程 INFO 日志）。
+    console_level_int = log_level_int
+    tqdm_handler.setLevel(console_level_int)
     tqdm_handler.setFormatter(formatter)
     logger.addHandler(tqdm_handler)
 
-    # 在控制台打印日志文件的实际位置
-    print(f"日志系统已启动，日志文件: {log_file_path}")
+    # 仅写入日志文件（控制台 handler 已提升到 WARNING+）
+    logging.getLogger(__name__).debug(f"日志系统已启动，日志文件: {log_file_path}")
     
     # 标记为已初始化
     _logging_initialized = True

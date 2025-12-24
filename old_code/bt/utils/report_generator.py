@@ -182,6 +182,6 @@ class ReportGenerator:
             f.write(html_content)
         
         logging.info(f"✅ 报告已生成: {report_path}")
-        print(f"✅ 报告已生成: {report_path}")
+        # print(f"✅ 报告已生成: {report_path}")
         
         return report_path

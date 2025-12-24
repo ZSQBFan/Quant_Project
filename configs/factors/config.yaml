@@ -115,5 +115,11 @@ output:
   dir: "output/factor_reports"
   save_factor_data: true
   save_analysis_results: true
+  export_factor_data: true
   generate_html_report: true
   generate_pdf_report: false
+  export_composite_factor:
+    enabled: true
+    dir: "temp/data_explore/"
+    format: "parquet"
+    by_day: true

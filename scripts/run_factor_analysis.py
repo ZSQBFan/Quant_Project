@@ -647,11 +647,45 @@ def run_factor_analysis(config_loader):
         combined_factors_df = composite_factor_series.to_frame()
 
     # =========================================================================
-    # 7. 生成报告
+    # 7. 生成报告与导出数据
     # =========================================================================
     if not combined_factors_df.empty:
-        logger.info("\n--- 步骤 7: 生成报告 ---")
+        logger.info("\n--- 步骤 7: 生成报告与导出数据 ---")
 
+        # 7a. 導出因子數據 (用於回測集成)
+        export_cfg = factor_analysis_config.output.get('export_composite_factor', {})
+        export_enabled = export_cfg.get('enabled', False)
+        if export_enabled:
+            export_dir = export_cfg.get('dir', 'temp/data_explore/')
+            logger.info(f"🚀 開啟因子數據導出: {export_dir}")
+            os.makedirs(export_dir, exist_ok=True)
+            
+            # 確保索引是 MultiIndex (date, asset)
+            if isinstance(combined_factors_df.index, pd.MultiIndex):
+                # 按天導出
+                dates = combined_factors_df.index.get_level_values('date').unique()
+                for d in tqdm(dates, desc="導出因子數據"):
+                    day_str = pd.to_datetime(d).strftime('%Y-%m-%d')
+                    day_data = combined_factors_df.xs(d, level='date').reset_index()
+                    
+                    # 統一列名: asset, factor_value
+                    # combined_factors_df 此時可能只有一列，即合成後的因子值
+                    if 'asset' not in day_data.columns and 'level_1' in day_data.columns:
+                        day_data.rename(columns={'level_1': 'asset'}, inplace=True)
+                    
+                    # 確保包含 asset 和 factor_value 列
+                    if 'factor_value' not in day_data.columns:
+                        # 如果列名不是 factor_value，則重命名最後一列
+                        day_data.rename(columns={day_data.columns[-1]: 'factor_value'}, inplace=True)
+                    
+                    output_path = os.path.join(export_dir, f"{day_str}.parquet")
+                    day_data[['asset', 'factor_value']].to_parquet(output_path, index=False)
+                
+                logger.info(f"✅ 因子數據已成功導出到 {export_dir}")
+            else:
+                logger.warning("⚠️ 因子數據索引不是 MultiIndex，跳過按天導出。")
+
+        # 7b. 生成分析报告
         try:
             from factors.analysis import FactorReport
         except ImportError:

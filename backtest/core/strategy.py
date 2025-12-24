@@ -43,10 +43,14 @@ class BacktestStrategy(bt.Strategy):
         ('allocator', None),        # 权重分配器实例
         ('capital_manager', None),  # 资金管理器实例
         ('triggers', []),           # 触发器工厂函数列表
+        ('pbar', None),             # 进度条实例
     )
     
     def __init__(self):
         """初始化策略"""
+        # 进度条支持 (必须最先初始化，因为 log 方法会用到)
+        self.pbar = self.p.pbar
+        
         # 保存组件引用
         self.selector = self.p.selector
         self.allocator = self.p.allocator
@@ -163,10 +167,7 @@ class BacktestStrategy(bt.Strategy):
         
         msg = f'[{dt}] {txt}'
         
-        # 输出到控制台
-        print(msg)
-        
-        # 同时记录到 logging（如果需要）
+        # 控制台输出由上层统一控制；此处仅记录到 logging
         logging.log(level, msg)
     
     def next(self):
@@ -193,10 +194,14 @@ class BacktestStrategy(bt.Strategy):
         # - 在这里添加调试打印：print(f"触发器数量: {len(self.triggers)}")
         # - 在触发器check_and_execute()开头添加打印
 
-        #记录当前时间步
-        print("时间步：" + str(self.datetime.date(0)))
+        # 记录当前时间步 (改为 DEBUG 级别)
+        logging.debug("时间步：" + str(self.datetime.date(0)))
 
-        #触发器
+        # 更新进度条
+        if self.pbar is not None:
+            self.pbar.update(1)
+
+        # 触发器
         logging.debug(f"触发器数量: {len(self.triggers)}")
         logging.debug(f"触发器列表: {[t.__class__.__name__ for t in self.triggers]}")
         logging.debug("开始触发器感知阶段")

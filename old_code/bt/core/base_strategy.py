@@ -12,6 +12,7 @@ Backtrader 策略基类
 
 import backtrader as bt
 import logging
+import sys
 from datetime import datetime
 from .constants import ActionPriority, ActionType
 
@@ -43,10 +44,17 @@ class BacktestStrategy(bt.Strategy):
         ('allocator', None),        # 权重分配器实例
         ('capital_manager', None),  # 资金管理器实例
         ('triggers', []),           # 触发器工厂函数列表
+        ('pbar', None),             # 进度条实例
+        ('total_steps', None),      # 预估时间步总数（用于原始行内进度显示）
     )
     
     def __init__(self):
         """初始化策略"""
+        # 进度条支持 (必须最先初始化，因为 log 方法会用到)
+        self.pbar = self.p.pbar
+        self.total_steps = self.p.total_steps
+        self.step_counter = 0
+        
         # 保存组件引用
         self.selector = self.p.selector
         self.allocator = self.p.allocator
@@ -163,10 +171,7 @@ class BacktestStrategy(bt.Strategy):
         
         msg = f'[{dt}] {txt}'
         
-        # 输出到控制台
-        print(msg)
-        
-        # 同时记录到 logging（如果需要）
+        # 控制台输出由上层统一控制（避免污染控制台）；此处仅记录到 logging
         logging.log(level, msg)
     
     def next(self):
@@ -193,10 +198,17 @@ class BacktestStrategy(bt.Strategy):
         # - 在这里添加调试打印：print(f"触发器数量: {len(self.triggers)}")
         # - 在触发器check_and_execute()开头添加打印
 
-        #记录当前时间步
-        print("时间步：" + str(self.datetime.date(0)))
+        # 记录当前时间步 (改为 DEBUG 级别)
+        current_date = self.datetime.date(0)
+        logging.debug("时间步：" + str(current_date))
 
-        #触发器
+        # 进度条/行内输出均不写入控制台（由上层统一控制）
+        if self.pbar is None:
+            self.step_counter += 1
+        else:
+            self.pbar.update(1)
+
+        # 触发器
         logging.debug(f"触发器数量: {len(self.triggers)}")
         logging.debug(f"触发器列表: {[t.__class__.__name__ for t in self.triggers]}")
         logging.debug("开始触发器感知阶段")
@@ -207,6 +219,11 @@ class BacktestStrategy(bt.Strategy):
         
         # 阶段 2: 执行指令
         self._execute_pending_actions()
+
+    def stop(self):
+        """回测结束时收尾行内进度显示。"""
+        # 不在此处写入 stdout，避免污染控制台输出
+        return
     
     def notify_order(self, order):
         """订单状态通知（可选覆写）"""
