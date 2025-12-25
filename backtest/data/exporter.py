@@ -19,7 +19,7 @@ import pandas as pd
 import numpy as np
 import logging
 import multiprocessing as mp
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 from functools import partial
 
@@ -85,6 +85,51 @@ class BTDataExporter:
         logging.info(f"✅ 成功加载 {len(combined_df)} 条因子记录")
         return combined_df['factor_value']
 
+    def _preprocess_factor_dict(self, factor_series: pd.Series, full_index: pd.DatetimeIndex) -> dict:
+        """
+        预处理因子数据为字典，显著加速单股票查找
+        
+        将 MultiIndex Series 转换为 {asset: np.array} 字典，
+        避免每个线程重复进行 xs 查询和 reindex 操作
+        
+        参数:
+            factor_series: MultiIndex Series (date, asset) -> factor_value
+            full_index: 完整的日期索引（用于预先对齐）
+            
+        返回:
+            {asset: factor_values_array} 字典
+        """
+        if factor_series is None or factor_series.empty:
+            return {}
+            
+        factor_dict = {}
+        
+        # 获取所有唯一资产
+        assets = factor_series.index.get_level_values('asset').unique()
+        
+        for asset in assets:
+            try:
+                # 使用 xs 获取单只股票的因子数据
+                asset_factors = factor_series.xs(asset, level='asset')
+                
+                # 去除重复日期 - 保留第一个
+                asset_factors = asset_factors[~asset_factors.index.duplicated(keep='first')]
+                
+                # 预先 reindex 到 full_index（主线程只做一次）
+                if full_index is not None:
+                    aligned_factors = asset_factors.reindex(full_index)
+                else:
+                    aligned_factors = asset_factors
+                
+                # 转换为 numpy 数组（更快）
+                factor_dict[asset] = aligned_factors.values
+            except Exception as e:
+                logging.debug(f"预处理资产 {asset} 的因子数据失败: {e}")
+                continue
+        
+        logging.info(f"✅ 因子数据预处理完成: {len(factor_dict)} 只股票有因子数据")
+        return factor_dict
+        
     def export(self, universe: list, start_date: str, end_date: str, 
                factor_series: pd.Series = None, max_workers: int = None) -> list:
         """
@@ -104,9 +149,9 @@ class BTDataExporter:
         if factor_series is None:
             factor_series = self.load_factor_data(start_date, end_date)
             
-        # 设置默认并行数
+        # 设置默认并行数：对于 I/O 密集型任务，线程数可以设得更高
         if max_workers is None:
-            max_workers = min(mp.cpu_count(), 8)  # 限制最大并发数
+            max_workers = min(mp.cpu_count() * 2, 32)  # 提升并发数加速 I/O
             
         logging.info(f"⚙️ [BTDataExporter] 开始并行导出 {len(universe)} 只股票的数据 (并发数: {max_workers})...")
         
@@ -117,13 +162,19 @@ class BTDataExporter:
         exported_files = []
         failed_assets = []
         
-        # 使用进程池并行处理
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # 提交任务
+        # 预创建工作日索引（避免每个线程重复创建）
+        full_index = pd.date_range(start_date, end_date, freq='B')
+        
+        # 【关键优化】预处理因子数据为字典（主线程只做一次）
+        factor_dict = self._preprocess_factor_dict(factor_series, full_index)
+        
+        # 使用线程池并行处理
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交任务（传入预处理后的因子字典）
             future_to_asset = {
                 executor.submit(
                     self._export_single_asset_optimized, 
-                    asset, all_data_dict.get(asset), start_date, end_date, factor_series
+                    asset, all_data_dict.get(asset), start_date, end_date, factor_dict.get(asset)
                 ): asset 
                 for asset in universe
             }
@@ -182,73 +233,75 @@ class BTDataExporter:
         
     def _export_single_asset_optimized(self, asset: str, asset_data: pd.DataFrame, 
                                       start_date: str, end_date: str,
-                                      factor_series: pd.Series) -> str | None:
-        """优化的单股票导出（使用预加载数据）"""
+                                      asset_factors: np.ndarray = None) -> str | None:
+        """
+        优化的单股票导出（使用预加载数据和预处理后的因子数据）
+        
+        参数:
+            asset: 股票代码
+            asset_data: 预加载的股票数据 DataFrame
+            start_date: 开始日期
+            end_date: 结束日期
+            asset_factors: 预处理后的因子数据 numpy 数组（已对齐 full_index）
+            
+        返回:
+            成功导出的文件路径，失败返回 None
+        """
         if asset_data is None or asset_data.empty:
-            logging.debug(f" > {asset}: 无数据")
             return None
             
         # 1. 筛选日期范围
-        asset_data = asset_data.loc[start_date:end_date]
+        try:
+            asset_data = asset_data.loc[start_date:end_date]
+        except KeyError:
+            return None
+        
         if asset_data.empty:
-            logging.debug(f" > {asset}: 指定日期范围内无数据")
             return None
             
-        # 2. 创建完整的工作日索引
+        # 2. 创建完整工作日索引（本地缓存）
         full_index = pd.date_range(start_date, end_date, freq='B')
+        
+        # 3. 重新索引
         asset_data = asset_data.reindex(full_index)
         
-        # 3. 标记停牌日期
+        # 4. 记录停牌标记（在填充前）
         suspended_mask = asset_data['close'].isna()
         
-        # 4. 数据填充
-        asset_data = asset_data.ffill().bfill()
+        # 5. 数据填充（链式操作避免 copy）
+        close_values = asset_data['close'].ffill().bfill().values
         
-        # 5. 检查数据完整性
-        if asset_data['close'].isna().any():
-            logging.debug(f" > {asset}: 填充后仍有缺失，跳过")
+        # 6. 检查数据完整性
+        if np.isnan(close_values).any():
             return None
             
-        # 6. 添加停牌标记
-        asset_data['suspended'] = suspended_mask
+        # 7. 直接赋值（避免中间变量 copy）
+        asset_data['close'] = close_values
+        asset_data['open'] = asset_data['open'].ffill().bfill().values
+        asset_data['high'] = asset_data['high'].ffill().bfill().values
+        asset_data['low'] = asset_data['low'].ffill().bfill().values
+        asset_data['volume'] = asset_data['volume'].ffill().bfill().values
         
-        # 7. 合并因子数据
-        if factor_series is not None and not factor_series.empty:
-            try:
-                if asset in factor_series.index.get_level_values('asset').unique():
-                    asset_factors = factor_series.xs(asset, level='asset')
-                    if not isinstance(asset_factors.index, pd.DatetimeIndex):
-                        asset_factors.index = pd.to_datetime(asset_factors.index)
-                    
-                    asset_data = asset_data.join(
-                        asset_factors.rename('combined_signal'),
-                        how='left'
-                    )
-                else:
-                    asset_data['combined_signal'] = np.nan
-            except Exception as e:
-                logging.debug(f" > {asset}: 因子数据合并失败 - {e}")
-                asset_data['combined_signal'] = np.nan
+        # 8. 添加停牌标记
+        asset_data['suspended'] = suspended_mask.values
+        
+        # 9. 添加因子数据（预处理后的 numpy 数组直接赋值）
+        if asset_factors is not None:
+            asset_data['combined_signal'] = asset_factors
         else:
             asset_data['combined_signal'] = np.nan
-            
-        # 8. 添加 openinterest 列
+        
+        # 10. 添加 openinterest 列
         asset_data['openinterest'] = 0
         
-        # 9. 最终列顺序
-        final_columns = [
-            'open', 'high', 'low', 'close', 'volume',
-            'openinterest', 'combined_signal', 'suspended'
-        ]
-        asset_data = asset_data[final_columns]
+        # 11. 最终列顺序
+        asset_data = asset_data[['open', 'high', 'low', 'close', 'volume',
+                                  'openinterest', 'combined_signal', 'suspended']]
         
-        # 10. 导出到 Parquet 文件
+        # 12. 导出到 Parquet 文件（优化写入参数）
         output_path = os.path.join(self.output_dir, f'{asset}.parquet')
-        asset_data.to_parquet(output_path)
+        asset_data.to_parquet(output_path, engine='pyarrow', compression='snappy')
         
-        # 统计信息
-        suspended_days = suspended_mask.sum()
-        logging.debug(f" > ✅ {asset}: {len(asset_data)} 行, 停牌 {suspended_days} 天")
         return output_path
         
     def _export_single_asset(self, asset: str, start_date: str, end_date: str,
