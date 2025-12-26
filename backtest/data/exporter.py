@@ -41,9 +41,36 @@ class BTDataExporter:
         self.factor_data_dir = factor_data_dir
         os.makedirs(output_dir, exist_ok=True)
     
+    def _read_single_parquet(self, file_path: str, date_str: str) -> pd.DataFrame | None:
+        """
+        读取单个 Parquet 文件（用于并行读取）
+        
+        参数:
+            file_path: 文件路径
+            date_str: 日期字符串
+            
+        返回:
+            DataFrame 或 None（失败时）
+        """
+        if not os.path.exists(file_path):
+            return None
+            
+        try:
+            df = pd.read_parquet(file_path)
+            # 确保包含必要的列
+            if 'asset' in df.columns and 'factor_value' in df.columns:
+                df['date'] = pd.to_datetime(date_str)
+                return df[['date', 'asset', 'factor_value']]
+            else:
+                logging.warning(f"⚠️ 文件 {file_path} 格式不正确，缺少 asset 或 factor_value 列")
+                return None
+        except Exception as e:
+            logging.error(f"❌ 读取因子文件 {file_path} 失败: {e}")
+            return None
+    
     def load_factor_data(self, start_date: str, end_date: str) -> pd.Series:
         """
-        从 factor_data_dir 加载按天存储的因子数据
+        从 factor_data_dir 加载按天存储的因子数据（并行读取优化版）
         
         参数:
             start_date: 开始日期
@@ -52,28 +79,35 @@ class BTDataExporter:
         返回:
             MultiIndex Series (date, asset) -> factor_value
         """
-        logging.info(f"📂 [BTDataExporter] 从 {self.factor_data_dir} 加载因子数据 ({start_date} ~ {end_date})...")
+        logging.info(f"📂 [BTDataExporter] 从 {self.factor_data_dir} 并行加载因子数据 ({start_date} ~ {end_date})...")
         
-        all_factors = []
         date_range = pd.date_range(start_date, end_date, freq='B')
+        file_date_pairs = []
         
         for dt in date_range:
             date_str = dt.strftime('%Y-%m-%d')
             file_path = os.path.join(self.factor_data_dir, f"{date_str}.parquet")
-            
             if os.path.exists(file_path):
-                try:
-                    df = pd.read_parquet(file_path)
-                    # 确保包含必要的列
-                    if 'asset' in df.columns and 'factor_value' in df.columns:
-                        df['date'] = pd.to_datetime(date_str)
-                        all_factors.append(df[['date', 'asset', 'factor_value']])
-                    else:
-                        logging.warning(f"⚠️ 文件 {file_path} 格式不正确，缺少 asset 或 factor_value 列")
-                except Exception as e:
-                    logging.error(f"❌ 读取因子文件 {file_path} 失败: {e}")
-            else:
-                logging.debug(f"ℹ️ 因子文件不存在: {file_path} (可能是非交易日)")
+                file_date_pairs.append((file_path, date_str))
+        
+        if not file_date_pairs:
+            logging.warning(f"⚠️ 在指定范围内未找到任何因子数据: {start_date} ~ {end_date}")
+            return pd.Series(dtype=float)
+        
+        # 使用 ThreadPoolExecutor 并行读取所有 Parquet 文件
+        all_factors = []
+        with ThreadPoolExecutor(max_workers=min(len(file_date_pairs), 16)) as executor:
+            # 提交所有读取任务
+            future_to_pair = {
+                executor.submit(self._read_single_parquet, file_path, date_str): (file_path, date_str)
+                for file_path, date_str in file_date_pairs
+            }
+            
+            # 收集结果
+            for future in as_completed(future_to_pair):
+                result = future.result()
+                if result is not None:
+                    all_factors.append(result)
         
         if not all_factors:
             logging.warning(f"⚠️ 在指定范围内未找到任何因子数据: {start_date} ~ {end_date}")
@@ -82,7 +116,7 @@ class BTDataExporter:
         combined_df = pd.concat(all_factors, ignore_index=True)
         combined_df.set_index(['date', 'asset'], inplace=True)
         
-        logging.info(f"✅ 成功加载 {len(combined_df)} 条因子记录")
+        logging.info(f"✅ 成功加载 {len(combined_df)} 条因子记录 (并行读取 {len(file_date_pairs)} 个文件)")
         return combined_df['factor_value']
 
     def _preprocess_factor_dict(self, factor_series: pd.Series, full_index: pd.DatetimeIndex) -> dict:
@@ -151,7 +185,7 @@ class BTDataExporter:
             
         # 设置默认并行数：对于 I/O 密集型任务，线程数可以设得更高
         if max_workers is None:
-            max_workers = min(mp.cpu_count() * 2, 32)  # 提升并发数加速 I/O
+            max_workers = min(mp.cpu_count() * 4, 64)  # 提升并发数加速 I/O
             
         logging.info(f"⚙️ [BTDataExporter] 开始并行导出 {len(universe)} 只股票的数据 (并发数: {max_workers})...")
         
@@ -298,9 +332,9 @@ class BTDataExporter:
         asset_data = asset_data[['open', 'high', 'low', 'close', 'volume',
                                   'openinterest', 'combined_signal', 'suspended']]
         
-        # 12. 导出到 Parquet 文件（优化写入参数）
+        # 12. 导出到 Parquet 文件（优化写入参数，减小文件体积并提高写入速度）
         output_path = os.path.join(self.output_dir, f'{asset}.parquet')
-        asset_data.to_parquet(output_path, engine='pyarrow', compression='snappy')
+        asset_data.to_parquet(output_path, engine='pyarrow', compression='snappy', use_dictionary=True)
         
         return output_path
         

@@ -17,6 +17,7 @@ import sys
 import yaml
 import json
 import logging
+import concurrent.futures
 import pandas as pd
 import backtrader as bt
 
@@ -120,22 +121,46 @@ def run_backtest(
     # if pbar is None:
     #     print(f"  找到 {len(stock_files)} 个股票数据文件")
     
-    loaded_count = 0
-    for s_file in stock_files:
+    # 使用 ThreadPoolExecutor 并行加载 Parquet 文件
+    def load_single_stock(s_file: str) -> tuple:
+        """加载单个股票文件，返回 (成功标志, 数据或None, ticker或错误)"""
         try:
-            df = pd.read_parquet(os.path.join(data_dir, s_file))
+            file_path = os.path.join(data_dir, s_file)
+            df = pd.read_parquet(file_path)
             
             # 确保索引是 DatetimeIndex
             if not isinstance(df.index, pd.DatetimeIndex):
                 df.index = pd.to_datetime(df.index)
             
             ticker = s_file.replace('.parquet', '')
-            data = FactorPandasData(dataname=df, name=ticker)
-            cerebro.adddata(data)
-            loaded_count += 1
-            
+            return (True, df, ticker)
         except Exception as e:
             logging.warning(f"  ⚠️ 加载 {s_file} 失败: {e}")
+            return (False, None, str(e))
+    
+    # 使用合适的 worker 数量
+    max_workers = min(32, (os.cpu_count() or 4) * 2)
+    
+    # 并行加载所有文件
+    loaded_count = 0
+    loaded_data = []
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务并保持顺序
+        futures = {executor.submit(load_single_stock, s_file): s_file for s_file in stock_files}
+        
+        # 按提交顺序收集结果
+        results = [None] * len(stock_files)
+        for i, s_file in enumerate(stock_files):
+            future = list(futures.keys())[list(futures.values()).index(s_file)]
+            results[i] = future.result()
+    
+    # 按顺序处理结果并添加到 cerebro
+    for success, df, ticker_or_error in results:
+        if success:
+            data = FactorPandasData(dataname=df, name=ticker_or_error)
+            cerebro.adddata(data)
+            loaded_count += 1
 
     # Backtrader 在没有任何 data feed 时，cerebro.run() 可能返回空列表（results=[]），
     # 继续访问 results[0] 会触发 IndexError。

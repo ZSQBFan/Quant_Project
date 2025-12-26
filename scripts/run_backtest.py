@@ -7,9 +7,26 @@
 import os
 import logging
 import re
+import inspect
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# 模块级缓存：存储 bt_run_backtest 函数是否支持 generate_report 参数
+# 避免每次调用时重复使用 inspect.signature 进行反射检查
+_bt_supports_generate_report_cache = None
+
+
+def _check_bt_supports_generate_report(func):
+    """检查函数是否支持 generate_report 参数（带缓存）"""
+    global _bt_supports_generate_report_cache
+    if _bt_supports_generate_report_cache is None:
+        try:
+            sig = inspect.signature(func)
+            _bt_supports_generate_report_cache = 'generate_report' in sig.parameters
+        except Exception:
+            _bt_supports_generate_report_cache = False
+    return _bt_supports_generate_report_cache
 
 # 默认配置（仅作为后备，优先使用配置文件）
 DEFAULT_CONFIG = {
@@ -282,14 +299,9 @@ def run_backtest(config_loader):
         from old_code.bt.backtest import run_backtest as bt_run_backtest
 
         # 兼容旧版本签名：如果旧函数不支持 generate_report 参数，
-        # 则不要在本脚本里再次生成报告，避免“✅ 报告已生成 ...”重复。
-        import inspect
-        _bt_sig = None
-        try:
-            _bt_sig = inspect.signature(bt_run_backtest)
-        except Exception:
-            _bt_sig = None
-        _bt_supports_generate_report = bool(_bt_sig and 'generate_report' in _bt_sig.parameters)
+        # 则不要在本脚本里再次生成报告，避免"✅ 报告已生成 ..."重复。
+        # 使用模块级缓存避免重复的反射开销
+        _bt_supports_generate_report = _check_bt_supports_generate_report(bt_run_backtest)
         _skip_report_generation = not _bt_supports_generate_report
 
         # 移除 tqdm 进度条，恢复最原始的时间步打印
