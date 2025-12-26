@@ -50,12 +50,12 @@ class BacktestStrategy(bt.Strategy):
         """初始化策略"""
         # 进度条支持 (必须最先初始化，因为 log 方法会用到)
         self.pbar = self.p.pbar
-        
+
         # 保存组件引用
         self.selector = self.p.selector
         self.allocator = self.p.allocator
         self.capital_manager = self.p.capital_manager
-        
+
         # 🔧 触发器实例化机制：
         # 注意：self.p.triggers接收的是函数列表，不是触发器实例列表
         # 每个函数应该接收strategy参数并返回触发器实例
@@ -65,10 +65,14 @@ class BacktestStrategy(bt.Strategy):
             trigger = trigger_factory(self)  # ⚠️ 这里调用工厂函数创建触发器实例
             self.triggers.append(trigger)
             self.log(f"  已加载触发器: {trigger.__class__.__name__}")
-        
+
         # 中央指令缓冲区
         self.pending_actions = []
-        
+
+        # 进度计数器
+        self.day_count = 0
+        self.total_days = None  # 将在第一次 next() 调用时估算
+
         self.log("✅ 策略初始化完成")
     
     def submit_action(self, data, action: str, size: int = None, 
@@ -97,7 +101,7 @@ class BacktestStrategy(bt.Strategy):
     def _execute_pending_actions(self):
         """
         核心逻辑：解决冲突并执行交易
-        
+
         处理步骤：
         1. 按优先级排序（数值越小越优先）
         2. 去重：每只股票只保留最高优先级的指令
@@ -106,31 +110,46 @@ class BacktestStrategy(bt.Strategy):
         """
         if not self.pending_actions:
             return
-        
+
+        total_pending = len(self.pending_actions)
+
         # 1. 按优先级排序
         self.pending_actions.sort(key=lambda x: x['priority'])
-        
+
         # 2. 去重：同一股票保留最高优先级
         final_intents = {}
+        conflicts_count = 0
         for intent in self.pending_actions:
             d = intent['data']
             if d not in final_intents:
                 final_intents[d] = intent
+            else:
+                conflicts_count += 1
             # 注意：由于已排序，第一个遇到的就是最高优先级，后续的会被忽略
-        
+
+        if conflicts_count > 0:
+            logging.debug(f"  🔀 解决 {conflicts_count} 个冲突指令 (保留高优先级)")
+
+        if final_intents:
+            logging.info(f"  📋 执行 {len(final_intents)} 个交易指令 (来自 {total_pending} 个待处理意图)")
+
         # 3. 执行最终指令
+        executed_count = 0
+        suspended_count = 0
+
         for d, intent in final_intents.items():
             # 检查是否停牌
             if self._is_suspended(d):
-                self.log(f"⏸️ 意图被拦截(停牌): {intent['action'].upper()} {d._name} | 原因: {intent['reason']}")
+                logging.debug(f"     ⏸️ 跳过停牌股票: {d._name} ({intent['action'].upper()})")
+                suspended_count += 1
                 continue
-            
+
             act = intent['action']
             size = intent['size']
             reason = intent['reason']
-            
-            self.log(f"📈 执行: {act.upper()} {d._name} | 数量: {size} | 原因: {reason}")
-            
+
+            logging.debug(f"     ✅ {act.upper()} {d._name} | 数量: {size} | {reason}")
+
             if act == ActionType.CLOSE:
                 self.close(data=d)
             elif act == ActionType.BUY:
@@ -139,7 +158,13 @@ class BacktestStrategy(bt.Strategy):
             elif act == ActionType.SELL:
                 if size and size > 0:
                     self.sell(data=d, size=size)
-        
+
+            executed_count += 1
+
+        if executed_count > 0:
+            logging.info(f"  ✅ 成功执行 {executed_count} 笔交易" +
+                        (f" (跳过 {suspended_count} 只停牌股票)" if suspended_count > 0 else ""))
+
         # 4. 清空缓冲区
         self.pending_actions.clear()
     
@@ -194,8 +219,12 @@ class BacktestStrategy(bt.Strategy):
         # - 在这里添加调试打印：print(f"触发器数量: {len(self.triggers)}")
         # - 在触发器check_and_execute()开头添加打印
 
+        # 进度计数
+        self.day_count += 1
+
         # 记录当前时间步 (改为 DEBUG 级别)
-        logging.debug("时间步：" + str(self.datetime.date(0)))
+        current_date = self.datetime.date(0)
+        logging.debug("时间步：" + str(current_date))
 
         # 更新进度条
         if self.pbar is not None:
@@ -205,11 +234,11 @@ class BacktestStrategy(bt.Strategy):
         logging.debug(f"触发器数量: {len(self.triggers)}")
         logging.debug(f"触发器列表: {[t.__class__.__name__ for t in self.triggers]}")
         logging.debug("开始触发器感知阶段")
-        
+
         # 阶段 1: 触发器感知
         for trigger in self.triggers:
             trigger.check_and_execute()  # 🚨 这里调用触发器的感知方法
-        
+
         # 阶段 2: 执行指令
         self._execute_pending_actions()
     

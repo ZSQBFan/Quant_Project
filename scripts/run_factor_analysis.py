@@ -168,14 +168,8 @@ def run_factor_analysis(config_loader):
     # =========================================================================
     logger.info("\n--- 步骤 2: 初始化数据管理器 ---")
 
-    try:
-        from data import DataProviderManager
-        from data.providers import SQLiteDataProvider
-    except ImportError as e:
-        logger.error(f"导入数据模块失败: {e}")
-        logger.info("尝试从 old_code 导入...")
-        from old_code.data.data_manager import DataProviderManager
-        from old_code.data.data_providers import SQLiteDataProvider
+    from data import DataProviderManager
+    from data.providers import SQLiteDataProvider
 
     # 数据源配置 - 使用统一的配置处理逻辑
     DATA_PROVIDERS_CONFIG = []
@@ -343,10 +337,7 @@ def run_factor_analysis(config_loader):
 
     # --- 分支 A: 执行简单因子 ---
     if simple_factors_batch:
-        try:
-            from factors.analysis import FactorCalculator
-        except ImportError:
-            from old_code.factor_analysis.factor_calculator import FactorCalculator
+        from factors.analysis import FactorCalculator
 
         for factor_name, user_params in simple_factors_batch:
             factor_cfg = enabled_factors[factor_name]
@@ -472,12 +463,8 @@ def run_factor_analysis(config_loader):
             else:
                 logger.warning(f"未知的标准化器类型 {DEFAULT_STANDARDIZER}，跳过标准化")
         except ImportError:
-            try:
-                from old_code.strategies.standardizers import CrossSectionalZScoreStandardizer
-                STANDARDIZER = CrossSectionalZScoreStandardizer()
-            except ImportError:
-                logger.warning("无法导入任何标准化器，将跳过标准化")
-                STANDARDIZER = None
+            logger.warning("无法导入任何标准化器，将跳过标准化")
+            STANDARDIZER = None
     except Exception as e:
         logger.warning(f"创建标准化器失败: {e}")
         STANDARDIZER = None
@@ -686,10 +673,7 @@ def run_factor_analysis(config_loader):
                 logger.warning("⚠️ 因子數據索引不是 MultiIndex，跳過按天導出。")
 
         # 7b. 生成分析报告
-        try:
-            from factors.analysis import FactorReport
-        except ImportError:
-            from old_code.factor_analysis.factor_report import FactorReport
+        from factors.analysis import FactorReport
 
         # 准备数据用于报告
         if isinstance(combined_factors_df.index, pd.MultiIndex):

@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
     'commission': 0.0003,
     'db_path': './database/quant_data.db',
     'output_dir': 'output/bt_reports',
-    'bt_data_dir': './bt_data',
+    'bt_data_dir': './bt/data_export',  # 与 BTDataExporter 默认导出路径一致
 }
 
 
@@ -151,13 +151,8 @@ def run_backtest(config_loader):
     # =========================================================================
     logger.debug("\n--- 步骤 1: 初始化数据 ---")
 
-    try:
-        from data import DataProviderManager
-        from data.providers import SQLiteDataProvider
-    except ImportError as e:
-        logger.warning(f"导入新数据模块失败: {e}")
-        from old_code.data.data_manager import DataProviderManager
-        from old_code.data.data_providers import SQLiteDataProvider
+    from data import DataProviderManager
+    from data.providers import SQLiteDataProvider
 
     # 从配置构建数据源配置
     DATA_PROVIDERS_CONFIG = []
@@ -212,14 +207,7 @@ def run_backtest(config_loader):
     # =========================================================================
     logger.debug("\n--- 步骤 2: 导出 Backtrader 数据 ---")
 
-    try:
-        from backtest.data.exporter import BTDataExporter
-    except ImportError:
-        try:
-            from old_code.bt.data.exporter import BTDataExporter
-        except ImportError:
-            logger.error("无法导入 BTDataExporter，回测终止")
-            return
+    from backtest.data.exporter import BTDataExporter
 
     # 获取因子数据导出配置
     factor_analysis_config = config_loader.load_factor_analysis()
@@ -280,45 +268,209 @@ def run_backtest(config_loader):
     else:
         logger.warning("⚠️ 无法从因子数据目录解析出任何有效日期，将尝试继续（可能导致回测无数据）")
 
-    exporter = BTDataExporter(data_manager, factor_data_dir=factor_data_dir)
+    # 确保导出目录与读取目录一致
+    bt_export_dir = BT_DATA_DIR
+    logger.info(f"📂 Backtrader 数据导出目录: {bt_export_dir}")
 
-    logger.info(f"导出数据，股票数: {len(universe)}")
+    exporter = BTDataExporter(
+        data_manager,
+        output_dir=bt_export_dir,  # 显式指定导出目录
+        factor_data_dir=factor_data_dir
+    )
+
+    logger.info(f"📤 开始导出回测数据，股票数: {len(universe)}")
     exporter.export(
         universe=universe,
         start_date=START_DATE,
         end_date=END_DATE,
         factor_series=None  # 自动从 factor_data_dir 加载
     )
+    logger.info(f"✅ 数据导出完成，目录: {bt_export_dir}")
 
     # =========================================================================
     # 4. 运行 Backtrader 回测
     # =========================================================================
     logger.debug("\n--- 步骤 3: 运行 Backtrader ---")
 
+    _skip_report_generation = False
+    cerebro = None
+    results = None
+    bt_initial_value = None
+    bt_final_value = None
+
     try:
-        from old_code.bt.backtest import run_backtest as bt_run_backtest
+        import backtrader as bt
+        import yaml
+        import json
+        import concurrent.futures
+        from backtest.data.feeds import FactorPandasData
+        from backtest.core.strategy import BacktestStrategy
+        from backtest.triggers.stop_loss import StopLossTrigger
+        from backtest.triggers.rebalance import RebalanceDayTrigger
+        from backtest.pipeline.selectors import TopNSelector
+        from backtest.pipeline.allocators import EqualWeightAllocator
+        from backtest.pipeline.capital import FullPositionManager
 
-        # 兼容旧版本签名：如果旧函数不支持 generate_report 参数，
-        # 则不要在本脚本里再次生成报告，避免"✅ 报告已生成 ..."重复。
-        # 使用模块级缓存避免重复的反射开销
-        _bt_supports_generate_report = _check_bt_supports_generate_report(bt_run_backtest)
-        _skip_report_generation = not _bt_supports_generate_report
+        logger.info("=" * 60)
+        logger.info("🚀 Backtrader 回测引擎启动")
+        logger.info("=" * 60)
 
-        # 移除 tqdm 进度条，恢复最原始的时间步打印
-        # 尽量禁用 old_code.bt.backtest 内部报告生成与结束提示（由本脚本统一输出，避免重复）
-        if _bt_supports_generate_report:
-            cerebro, results = bt_run_backtest(pbar=None, generate_report=False)
+        # 读取配置
+        logger.info("📖 读取回测配置...")
+        with open('configs/backtest/strategy_main.yaml', encoding='utf-8') as f:
+            strat_conf = yaml.safe_load(f)
+
+        with open('configs/backtest/broker.json', encoding='utf-8') as f:
+            broker_conf = json.load(f)
+
+        with open('configs/backtest/trading_days.json', encoding='utf-8') as f:
+            trading_days = json.load(f)['dates']
+
+        logger.info(f"  策略名称: {strat_conf['strategy']['name']}")
+        logger.info(f"  初始资金: {broker_conf['initial_cash']:,} 元")
+        logger.info(f"  佣金费率: {broker_conf['commission']['rate']:.4f}")
+        logger.info(f"  调仓日期数: {len(trading_days)} 次")
+
+        # 初始化 Cerebro 引擎
+        logger.info("\n⚙️  初始化 Cerebro 回测引擎...")
+        cerebro = bt.Cerebro()
+        cerebro.broker.setcash(broker_conf['initial_cash'])
+        cerebro.broker.setcommission(commission=broker_conf['commission']['rate'])
+        logger.debug(f"  Cerebro 引擎已初始化")
+
+        # 加载数据
+        logger.info("\n📊 加载股票数据...")
+        data_dir = BT_DATA_DIR
+        logger.debug(f"  数据目录: {data_dir}")
+
+        if not os.path.exists(data_dir):
+            raise FileNotFoundError(
+                f"数据目录不存在: {data_dir}\n"
+                f"请先运行数据导出流程。"
+            )
+
+        stock_files = [f for f in os.listdir(data_dir) if f.endswith('.parquet')]
+        logger.info(f"  发现 {len(stock_files)} 个股票数据文件")
+
+        if not stock_files:
+            raise FileNotFoundError(f"数据目录为空: {data_dir}")
+
+        # 串行加载 Parquet 文件（避免多线程闭包问题，且 parquet 加载本身已很快）
+        loaded_count = 0
+        logger.info(f"  开始加载股票数据...")
+
+        results_list = []
+        for s_file in stock_files:
+            try:
+                file_path = os.path.join(data_dir, s_file)
+                df = pd.read_parquet(file_path)
+
+                if not isinstance(df.index, pd.DatetimeIndex):
+                    df.index = pd.to_datetime(df.index)
+
+                ticker = s_file.replace('.parquet', '')
+                results_list.append((True, df, ticker))
+            except Exception as e:
+                logger.warning(f"  ⚠️ 加载 {s_file} 失败: {e}")
+                results_list.append((False, None, str(e)))
+
+        for success, df, ticker_or_error in results_list:
+            if success:
+                data = FactorPandasData(dataname=df, name=ticker_or_error)
+                cerebro.adddata(data)
+                loaded_count += 1
+
+        if loaded_count == 0:
+            raise RuntimeError(
+                "Backtrader 未加载到任何可用数据。"
+                "可能原因：数据导出目录内容不匹配当前 FactorPandasData 字段要求。"
+            )
+
+        logger.info(f"  ✅ 成功加载 {loaded_count} 只股票数据")
+
+        # 组装策略组件
+        logger.info("\n🔧 组装策略组件...")
+        top_n = strat_conf['pipeline']['selector']['params']['n']
+        selector = TopNSelector(top_n=top_n)
+        logger.info(f"  选股器: TopNSelector (选择前 {top_n} 只股票)")
+
+        allocator = EqualWeightAllocator()
+        logger.info(f"  权重分配器: EqualWeightAllocator (等权重)")
+
+        capital_manager = FullPositionManager(utilization_ratio=0.95)
+        logger.info(f"  资金管理器: FullPositionManager (资金利用率 95%)")
+
+        # 从配置文件动态加载触发器
+        triggers = []
+        trigger_names = []
+
+        for trigger_cfg in backtest_config.triggers:
+            if not trigger_cfg.enabled:
+                logger.info(f"  跳过已禁用的触发器: {trigger_cfg.type}")
+                continue
+
+            trigger_type = trigger_cfg.type
+            trigger_params = trigger_cfg.params
+
+            if trigger_type == 'StopLoss':
+                loss_threshold = trigger_params.get('loss_threshold', -0.10)
+                triggers.append(lambda s, thresh=loss_threshold: StopLossTrigger(s, loss_threshold=thresh))
+                trigger_names.append(f"StopLoss ({loss_threshold:.0%})")
+
+            elif trigger_type == 'RebalanceDay':
+                triggers.append(lambda s: RebalanceDayTrigger(s, trading_days_list=trading_days))
+                trigger_names.append(f"RebalanceDay ({len(trading_days)} 个调仓日)")
+
+            else:
+                logger.warning(f"  ⚠️ 未知触发器类型: {trigger_type}")
+
+        if trigger_names:
+            logger.info(f"  触发器: {', '.join(trigger_names)}")
         else:
-            cerebro, results = bt_run_backtest(pbar=None)
+            logger.warning("  ⚠️ 未配置任何触发器")
 
-        logger.info("Backtrader 回测完成")
+        cerebro.addstrategy(
+            BacktestStrategy,
+            selector=selector,
+            allocator=allocator,
+            capital_manager=capital_manager,
+            triggers=triggers,
+            pbar=None
+        )
+        logger.debug("  ✅ 策略已添加到 Cerebro")
 
-        # 记录结束阶段需要用到的资金信息
-        bt_initial_value = getattr(getattr(cerebro, 'broker', None), 'startingcash', None)
-        try:
-            bt_final_value = cerebro.broker.getvalue() if getattr(cerebro, 'broker', None) is not None else None
-        except Exception:
-            bt_final_value = None
+        # 添加分析器
+        logger.info("\n📈 添加分析器...")
+        cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
+        cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+        cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+        logger.debug("  ✅ 分析器已添加 (Sharpe, DrawDown, TradeAnalyzer)")
+
+        # 运行回测
+        logger.info("\n" + "=" * 60)
+        logger.info("🏃 开始运行回测...")
+        logger.info("=" * 60)
+
+        # 预估数据规模
+        date_range = pd.date_range(start=START_DATE, end=END_DATE, freq='B')  # 工作日
+        estimated_days = len(date_range)
+        logger.info(f"📊 数据规模: {loaded_count} 只股票 × ~{estimated_days} 个交易日")
+        logger.info(f"⏱️  预计需要 1-3 分钟 (取决于机器性能)")
+        logger.info(f"💡 进度将每 20 个交易日更新一次\n")
+
+        results = cerebro.run()
+
+        if not results:
+            raise RuntimeError("Backtrader 未返回策略结果。")
+
+        logger.info("\n" + "=" * 60)
+        logger.info("✅ Backtrader 回测完成！")
+        logger.info("=" * 60)
+
+        # 记录资金信息
+        bt_initial_value = cerebro.broker.startingcash
+        bt_final_value = cerebro.broker.getvalue()
+
     except ImportError as e:
         logger.warning(f"导入 Backtrader 模块失败: {e}")
         logger.info("尝试使用内置简化回测...")
@@ -344,11 +496,8 @@ def run_backtest(config_loader):
     try:
         from backtest.reports import ReportGenerator
     except ImportError:
-        try:
-            from old_code.bt.utils.report_generator import ReportGenerator
-        except ImportError:
-            logger.warning("无法导入报告生成器")
-            ReportGenerator = None
+        logger.warning("无法导入报告生成器")
+        ReportGenerator = None
 
     if not _skip_report_generation and ReportGenerator is not None and cerebro is not None:
         report_gen = ReportGenerator(output_dir=OUTPUT_DIR)

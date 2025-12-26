@@ -1,2 +1,4 @@
 """Capital Managers"""
-__all__ = []
+from .full_position import FullPositionManager, CapitalManagerBase
+
+__all__ = ['FullPositionManager', 'CapitalManagerBase']

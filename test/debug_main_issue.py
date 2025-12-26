@@ -7,15 +7,27 @@ import os
 import sys
 import pandas as pd
 import logging
-from data.data_manager import DataProviderManager
-from bt.data.exporter import BTDataExporter
+from data import DataProviderManager
+from data.providers import SQLiteDataProvider
+from backtest.data.exporter import BTDataExporter
 
 # 设置日志
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 配置
 from universe_config import UNIVERSE
-from old_code.main_analyzer import DATA_PROVIDERS_CONFIG, START_DATE, END_DATE, BACKTEST_DB_PATH
+
+# 数据源配置
+DATA_PROVIDERS_CONFIG = [
+    ('sqlite_jy', SQLiteDataProvider, {
+        'db_path': './database/JY_database/sqlite/JY_database.sqlite',
+        'table_name': 'JY_t_price_daily'
+    }),
+]
+
+START_DATE = '2024-01-01'
+END_DATE = '2024-12-31'
+BACKTEST_DB_PATH = './database/quant_data.db'
 
 def test_main_scenario():
     """模拟主程序中的场景"""

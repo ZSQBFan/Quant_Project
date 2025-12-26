@@ -80,20 +80,6 @@ class FactorCalculator:
         except Exception as e:
             logging.debug(f"[FactorCalculator] 从注册表获取因子失败: {e}")
 
-        # 尝试从旧的因子库加载（向后兼容）
-        try:
-            # 动态导入旧的因子模块
-            import importlib
-            old_factors = importlib.import_module('old_code.factor_analysis.factors')
-            calc_func = getattr(
-                old_factors, f"calculate_{self.factor_name.lower()}_factor",
-                None)
-            if calc_func is not None:
-                logging.info(f"[FactorCalculator] 从旧因子库获取因子: {self.factor_name}")
-                return calc_func
-        except Exception as e:
-            logging.debug(f"[FactorCalculator] 从旧因子库获取因子失败: {e}")
-
         logging.error(f"❌ 因子 '{self.factor_name}' 的计算函数未找到。")
         return None
 
