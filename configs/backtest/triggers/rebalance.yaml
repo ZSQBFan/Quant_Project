@@ -3,49 +3,47 @@
 # 定义调仓日期和调仓规则
 
 # ============================================================================
-# RebalanceDay 指定日期调仓触发器
+# RebalanceDay 动态调仓触发器
 # ============================================================================
-# 在指定的交易日进行调仓
+# 根据回测日期范围动态生成调仓日期
 
 RebalanceDay:
-  description: "在指定日期进行调仓"
+  description: "根据频率动态生成调仓日期"
   enabled: true
   params:
-    # 指定调仓日期列表（月初调仓示例）
-    trading_days_list:
-      - "2024-01-02"
-      - "2024-02-01"
-      - "2024-03-01"
-      - "2024-04-01"
-      - "2024-05-06"
-      - "2024-06-03"
-      - "2024-07-01"
-      - "2024-08-01"
-      - "2024-09-02"
-      - "2024-10-08"
-      - "2024-11-01"
-      - "2024-12-02"
+    # 每月调仓：指定每月的调仓日期 (1-31)
+    # 如果该月没有该日期，使用该月最后一天
+    frequency: "monthly"
+    monthday: 3
+
+    # 每周调仓：指定周几调仓 (0=周一, 1=周二, ..., 4=周五, 5=周六, 6=周日)
+    # frequency: "weekly"
+    # weekday: 0
+
+    # 间隔调仓：每隔N个交易日调仓
+    # frequency: "interval"
+    # interval_days: 20
 
 # ============================================================================
 # PeriodicRebalance 周期性调仓触发器（预留）
 # ============================================================================
 # 按固定周期自动调仓
 
-PeriodicRebalance:
-  description: "按固定周期调仓"
-  enabled: false
-  params:
-    frequency: "MS"  # 'D'=日, 'W'=周, 'MS'=月初, 'ME'=月末
-    skip_first_n_days: 0  # 跳过开始的N个交易日
+# PeriodicRebalance:
+#   description: "按固定周期调仓"
+#   enabled: false
+#   params:
+#     frequency: "MS"  # 'D'=日, 'W'=周, 'MS'=月初, 'ME'=月末
+#     skip_first_n_days: 0  # 跳过开始的N个交易日
 
 # ============================================================================
 # SignalRebalance 信号触发调仓器（预留）
 # ============================================================================
 # 当因子信号变化超过阈值时调仓
 
-SignalRebalance:
-  description: "因子信号变化超过阈值时调仓"
-  enabled: false
-  params:
-    signal_change_threshold: 0.3  # 信号变化阈值
-    min_interval_days: 5  # 最小调仓间隔
+# SignalRebalance:
+#   description: "因子信号变化超过阈值时调仓"
+#   enabled: false
+#   params:
+#     signal_change_threshold: 0.3  # 信号变化阈值
+#     min_interval_days: 5  # 最小调仓间隔

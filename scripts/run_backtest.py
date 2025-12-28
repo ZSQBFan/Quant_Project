@@ -310,6 +310,7 @@ def run_backtest(config_loader):
         from backtest.pipeline.selectors import TopNSelector, IndustryNeutralSelector
         from backtest.pipeline.allocators import EqualWeightAllocator
         from backtest.pipeline.capital import FullPositionManager
+        from backtest.core.rebalance_calendar import create_rebalance_calendar
 
         logger.info("=" * 60)
         logger.info("🚀 Backtrader 回测引擎启动")
@@ -318,12 +319,8 @@ def run_backtest(config_loader):
         # 读取配置
         logger.info("📖 读取回测配置...")
 
-        with open('configs/backtest/trading_days.json', encoding='utf-8') as f:
-            trading_days = json.load(f)['dates']
-
         logger.info(f"  初始资金: {INITIAL_CASH:,} 元")
         logger.info(f"  佣金费率: {COMMISSION:.4f}")
-        logger.info(f"  调仓日期数: {len(trading_days)} 次")
 
         # 初始化 Cerebro 引擎
         logger.info("\n⚙️  初始化 Cerebro 回测引擎...")
@@ -438,8 +435,26 @@ def run_backtest(config_loader):
                 trigger_names.append(f"StopLoss ({loss_threshold:.0%})")
 
             elif trigger_type == 'RebalanceDay':
-                triggers.append(lambda s: RebalanceDayTrigger(s, trading_days_list=trading_days))
-                trigger_names.append(f"RebalanceDay ({len(trading_days)} 个调仓日)")
+                # 使用动态调仓日历生成器
+                rebalance_config = trigger_params
+                trading_days = create_rebalance_calendar(
+                    start_date=START_DATE,
+                    end_date=END_DATE,
+                    config=rebalance_config,
+                    trading_calendar=None  # 可选：传入交易日历
+                )
+
+                # 显示调仓配置信息
+                frequency = rebalance_config.get('frequency', 'monthly')
+                freq_desc = {
+                    'daily': '每日',
+                    'weekly': f"每周{['一', '二', '三', '四', '五', '六', '日'][rebalance_config.get('weekday', 0)]}",
+                    'monthly': f"每月{rebalance_config.get('monthday', 1)}号",
+                    'interval': f"每{rebalance_config.get('interval_days', 20)}个交易日"
+                }.get(frequency, frequency)
+
+                triggers.append(lambda s, days=trading_days: RebalanceDayTrigger(s, trading_days_list=days))
+                trigger_names.append(f"RebalanceDay ({freq_desc}, {len(trading_days)}次)")
 
             else:
                 logger.warning(f"  ⚠️ 未知触发器类型: {trigger_type}")
