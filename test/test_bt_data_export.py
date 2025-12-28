@@ -217,7 +217,7 @@ def main():
     logging.info("3. 初始化数据导出器...")
     exporter = BTDataExporter(
         data_manager=dm,
-        output_dir='./test/bt_data_export_test/'
+        output_dir='temp/test_bt_data/'
     )
     
     # 清空导出目录

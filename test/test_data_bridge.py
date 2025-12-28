@@ -29,7 +29,7 @@ except ImportError as e:
 
 # 2. 检查导出目录
 print("\n[2] 检查导出目录...")
-export_dir = './test/bt_data_export_test/'
+export_dir = 'temp/test_bt_data/'
 if os.path.exists(export_dir):
     files = [f for f in os.listdir(export_dir) if f.endswith('.parquet')]
     print(f"✅ 导出目录存在，包含 {len(files)} 个 Parquet 文件")

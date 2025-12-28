@@ -1,6 +1,7 @@
-# 选股器配置
+# 选股器详细参数配置
 #
-# 定义所有可用的选股器及其参数
+# 在 config.yaml 中通过 selector 字段选择使用哪个选股器
+# 本文件仅定义各选股器的参数，不控制启用/禁用
 
 # ============================================================================
 # TopN 选股器
@@ -11,27 +12,17 @@ TopN:
   description: "选择因子值排名最高的N只股票"
   params:
     top_n: 10
-  enabled: true
 
 # ============================================================================
-# TopPercent 选股器（预留）
+# IndustryNeutral 行业中性化选股器
 # ============================================================================
-# 选择因子值排名前 X% 的股票
+# 在各行业中均衡选股，降低行业集中风险
 
-TopPercent:
-  description: "选择因子值排名前X%的股票"
+IndustryNeutral:
+  description: "行业中性化选股器，在各行业间均衡选股"
   params:
-    top_percent: 0.1  # 前10%
-  enabled: false
-
-# ============================================================================
-# Threshold 选股器（预留）
-# ============================================================================
-# 选择因子值超过阈值的股票
-
-Threshold:
-  description: "选择因子值超过阈值的股票"
-  params:
-    threshold: 0.5
-    direction: "above"  # "above" 或 "below"
-  enabled: false
+    total_stocks: 10           # 总共选择的股票数量
+    strategy: "equal"          # 分配策略: equal/proportional/top_industries
+    stocks_per_industry: null  # 每个行业选择的数量（仅 equal 策略）
+    top_industries: null       # 选择的行业数量（仅 top_industries 策略）
+    min_stocks_per_industry: 1 # 每个行业最少选择数量

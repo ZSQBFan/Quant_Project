@@ -55,7 +55,7 @@ class MVPIntegrationTest:
         setup_logging(log_dir='test_logs', log_prefix='bt_mvp_test')
         
         # 创建测试数据目录
-        test_data_dir = './bt/data_export/'
+        test_data_dir = 'temp/backtest_data/'
         os.makedirs(test_data_dir, exist_ok=True)
         
         # 创建测试报告目录
@@ -66,37 +66,33 @@ class MVPIntegrationTest:
     def test_01_config_reading(self):
         """测试1：配置文件读取"""
         print("\n[测试1] 📖 配置文件读取测试...")
-        
+
         try:
-            # 测试读取策略配置
-            import yaml
-            with open('config/strategy_main.yaml', encoding='utf-8') as f:
-                strat_conf = yaml.safe_load(f)
-            
-            assert 'strategy' in strat_conf
-            assert 'pipeline' in strat_conf
-            print("  ✅ 策略配置文件读取成功")
-            
-            # 测试读取券商配置
-            import json
-            with open('config/broker.json', encoding='utf-8') as f:
-                broker_conf = json.load(f)
-            
-            assert 'initial_cash' in broker_conf
-            assert 'commission' in broker_conf
-            print("  ✅ 券商配置文件读取成功")
-            
+            # 使用ConfigLoader加载配置
+            from core.config import ConfigLoader
+            config_loader = ConfigLoader()
+
+            # 测试读取回测配置（包含broker配置）
+            backtest_config = config_loader.load_backtest()
+
+            assert backtest_config.initial_cash > 0
+            assert backtest_config.commission >= 0
+            print(f"  ✅ 回测配置加载成功")
+            print(f"    - 初始资金: {backtest_config.initial_cash:,.0f}")
+            print(f"    - 佣金费率: {backtest_config.commission:.4f}")
+
             # 测试读取交易日配置
-            with open('config/trading_days.json', encoding='utf-8') as f:
+            import json
+            with open('configs/backtest/trading_days.json', encoding='utf-8') as f:
                 trading_days = json.load(f)
-            
+
             assert 'dates' in trading_days
             assert len(trading_days['dates']) > 0
             print("  ✅ 交易日配置文件读取成功")
-            
+
             self.results['config_reading'] = True
             print("  ✅ 测试1通过：配置文件读取")
-            
+
         except Exception as e:
             self.results['config_reading'] = False
             print(f"  ❌ 测试1失败：配置文件读取 - {e}")
@@ -294,7 +290,7 @@ class MVPIntegrationTest:
             print("  ✅ 策略类导入成功")
             
             # 检查是否有测试数据
-            test_data_dir = './bt/data_export/'
+            test_data_dir = 'temp/backtest_data/'
             if os.path.exists(test_data_dir):
                 parquet_files = [f for f in os.listdir(test_data_dir) if f.endswith('.parquet')]
                 if parquet_files:

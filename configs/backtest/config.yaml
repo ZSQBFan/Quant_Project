@@ -11,8 +11,17 @@
 start_date: null
 end_date: null
 
-initial_cash: 1000000.0
-commission: 0.0003  # 万分之三手续费
+# ============================================================================
+# 券商配置
+# ============================================================================
+# MVP阶段使用简化的成本模型，后续可扩展为更真实的券商费率
+
+broker:
+  initial_cash: 1000000  # 初始资金：100万元人民币
+
+  # 佣金配置
+  commission:
+    rate: 0.001  # 万分之十 (0.1%)，接近A股实际佣金
 
 # ============================================================================
 # Pipeline 组件选择
@@ -20,6 +29,7 @@ commission: 0.0003  # 万分之三手续费
 # 详细参数配置见 pipeline/ 目录下的对应文件
 
 # 选股器（详见 pipeline/selectors.yaml）
+# 可选值: TopN, IndustryNeutral
 selector: TopN
 
 # 权重分配器（详见 pipeline/allocators.yaml）
@@ -51,6 +61,7 @@ benchmark: "600519"  # 基准股票（贵州茅台）
 
 output:
   dir: "output/bt_reports"
+  bt_data_dir: "temp/backtest_data"  # 回测数据导出目录
   save_trades: true
   save_portfolio: true
   generate_report: true

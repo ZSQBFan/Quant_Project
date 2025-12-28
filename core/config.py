@@ -466,12 +466,22 @@ class ConfigLoader:
             start_date = config_dict.get('start_date', '2024-01-01')
             end_date = config_dict.get('end_date', '2024-12-31')
 
+        # 从broker配置中读取（优先），如不存在则使用顶层配置（向后兼容）
+        broker_config = config_dict.get('broker', {})
+        if broker_config:
+            initial_cash = broker_config.get('initial_cash', 1000000.0)
+            commission_config = broker_config.get('commission', {})
+            commission = commission_config.get('rate', 0.0003)
+        else:
+            initial_cash = config_dict.get('initial_cash', 1000000.0)
+            commission = config_dict.get('commission', 0.0003)
+
         try:
             return BacktestConfig(
                 start_date=start_date,
                 end_date=end_date,
-                initial_cash=config_dict.get('initial_cash', 1000000.0),
-                commission=config_dict.get('commission', 0.0003),
+                initial_cash=initial_cash,
+                commission=commission,
                 selector=selector_name,
                 selector_params=selector_params,
                 allocator=allocator_name,

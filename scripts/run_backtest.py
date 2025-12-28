@@ -36,7 +36,7 @@ DEFAULT_CONFIG = {
     'commission': 0.0003,
     'db_path': './database/quant_data.db',
     'output_dir': 'output/bt_reports',
-    'bt_data_dir': './bt/data_export',  # 与 BTDataExporter 默认导出路径一致
+    'bt_data_dir': 'temp/backtest_data',  # 统一到 temp 目录
 }
 
 
@@ -307,7 +307,7 @@ def run_backtest(config_loader):
         from backtest.core.strategy import BacktestStrategy
         from backtest.triggers.stop_loss import StopLossTrigger
         from backtest.triggers.rebalance import RebalanceDayTrigger
-        from backtest.pipeline.selectors import TopNSelector
+        from backtest.pipeline.selectors import TopNSelector, IndustryNeutralSelector
         from backtest.pipeline.allocators import EqualWeightAllocator
         from backtest.pipeline.capital import FullPositionManager
 
@@ -317,25 +317,19 @@ def run_backtest(config_loader):
 
         # 读取配置
         logger.info("📖 读取回测配置...")
-        with open('configs/backtest/strategy_main.yaml', encoding='utf-8') as f:
-            strat_conf = yaml.safe_load(f)
-
-        with open('configs/backtest/broker.json', encoding='utf-8') as f:
-            broker_conf = json.load(f)
 
         with open('configs/backtest/trading_days.json', encoding='utf-8') as f:
             trading_days = json.load(f)['dates']
 
-        logger.info(f"  策略名称: {strat_conf['strategy']['name']}")
-        logger.info(f"  初始资金: {broker_conf['initial_cash']:,} 元")
-        logger.info(f"  佣金费率: {broker_conf['commission']['rate']:.4f}")
+        logger.info(f"  初始资金: {INITIAL_CASH:,} 元")
+        logger.info(f"  佣金费率: {COMMISSION:.4f}")
         logger.info(f"  调仓日期数: {len(trading_days)} 次")
 
         # 初始化 Cerebro 引擎
         logger.info("\n⚙️  初始化 Cerebro 回测引擎...")
         cerebro = bt.Cerebro()
-        cerebro.broker.setcash(broker_conf['initial_cash'])
-        cerebro.broker.setcommission(commission=broker_conf['commission']['rate'])
+        cerebro.broker.setcash(INITIAL_CASH)
+        cerebro.broker.setcommission(commission=COMMISSION)
         logger.debug(f"  Cerebro 引擎已初始化")
 
         # 加载数据
@@ -390,9 +384,35 @@ def run_backtest(config_loader):
 
         # 组装策略组件
         logger.info("\n🔧 组装策略组件...")
-        top_n = strat_conf['pipeline']['selector']['params']['n']
-        selector = TopNSelector(top_n=top_n)
-        logger.info(f"  选股器: TopNSelector (选择前 {top_n} 只股票)")
+
+        # 从 backtest_config 动态加载选股器（从 config.yaml + pipeline/selectors.yaml）
+        selector_type = backtest_config.selector
+        selector_params = backtest_config.selector_params
+
+        if selector_type == 'TopN':
+            top_n = selector_params.get('top_n', 10)
+            selector = TopNSelector(top_n=top_n)
+            logger.info(f"  选股器: TopNSelector (选择前 {top_n} 只股票)")
+
+        elif selector_type == 'IndustryNeutral':
+            total_stocks = selector_params.get('total_stocks', 10)
+            strategy = selector_params.get('strategy', 'equal')
+            stocks_per_industry = selector_params.get('stocks_per_industry')
+            top_industries = selector_params.get('top_industries')
+            min_stocks_per_industry = selector_params.get('min_stocks_per_industry', 1)
+
+            selector = IndustryNeutralSelector(
+                total_stocks=total_stocks,
+                strategy=strategy,
+                stocks_per_industry=stocks_per_industry,
+                top_industries=top_industries,
+                min_stocks_per_industry=min_stocks_per_industry
+            )
+            logger.info(f"  选股器: IndustryNeutralSelector (总数: {total_stocks}, 策略: {strategy})")
+
+        else:
+            logger.error(f"不支持的选股器类型: {selector_type}")
+            raise ValueError(f"不支持的选股器类型: {selector_type}")
 
         allocator = EqualWeightAllocator()
         logger.info(f"  权重分配器: EqualWeightAllocator (等权重)")

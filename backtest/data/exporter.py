@@ -15,6 +15,7 @@ Backtrader 数据导出器
 """
 
 import os
+import json
 import pandas as pd
 import numpy as np
 import logging
@@ -28,8 +29,8 @@ class BTDataExporter:
     """
     将因子分析数据导出为 Backtrader 可用格式
     """
-    
-    def __init__(self, data_manager, output_dir='./bt/data_export/', factor_data_dir='temp/data_explore/'):
+
+    def __init__(self, data_manager, output_dir='temp/backtest_data/', factor_data_dir='temp/data_explore/'):
         """
         参数:
             data_manager: DataProviderManager 实例
@@ -40,7 +41,43 @@ class BTDataExporter:
         self.output_dir = output_dir
         self.factor_data_dir = factor_data_dir
         os.makedirs(output_dir, exist_ok=True)
-    
+
+        # 行业编码映射（行业名称 -> 数值编码）
+        self.industry_to_code = {}
+        self.code_to_industry = {}
+        self._industry_code_counter = 0
+
+    def _encode_industry(self, industry_name):
+        """
+        将行业名称编码为数值
+
+        Args:
+            industry_name: 行业名称（字符串或None）
+
+        Returns:
+            数值编码（int），如果是None则返回-1
+        """
+        if industry_name is None or (isinstance(industry_name, float) and np.isnan(industry_name)):
+            return -1  # 使用 -1 表示无行业信息
+
+        if industry_name not in self.industry_to_code:
+            self.industry_to_code[industry_name] = self._industry_code_counter
+            self.code_to_industry[self._industry_code_counter] = industry_name
+            self._industry_code_counter += 1
+
+        return self.industry_to_code[industry_name]
+
+    def save_industry_mapping(self):
+        """保存行业编码映射到文件"""
+        mapping_path = os.path.join(self.output_dir, 'industry_mapping.json')
+        with open(mapping_path, 'w', encoding='utf-8') as f:
+            json.dump({
+                'industry_to_code': self.industry_to_code,
+                'code_to_industry': {str(k): v for k, v in self.code_to_industry.items()}
+            }, f, ensure_ascii=False, indent=2)
+        logging.info(f"✅ 行业编码映射已保存: {mapping_path}")
+        logging.info(f"   共 {len(self.industry_to_code)} 个行业")
+
     def _read_single_parquet(self, file_path: str, date_str: str) -> pd.DataFrame | None:
         """
         读取单个 Parquet 文件（用于并行读取）
@@ -234,17 +271,21 @@ class BTDataExporter:
         logging.info(f"✅ [BTDataExporter] 并行导出完成! 成功: {len(exported_files)}/{len(universe)} 只股票")
         if failed_assets:
             logging.warning(f"⚠️ 失败股票: {len(failed_assets)} 只 - {failed_assets[:10]}{'...' if len(failed_assets) > 10 else ''}")
-        
+
+        # 保存行业编码映射
+        if self.industry_to_code:
+            self.save_industry_mapping()
+
         return exported_files
     
     def _batch_load_all_data(self, universe: list, start_date: str, end_date: str) -> dict:
         """批量加载所有股票数据，显著提升性能"""
         logging.info("🔄 开始批量加载数据...")
-        
-        # 批量查询所有股票数据
+
+        # 批量查询所有股票数据（包括行业信息）
         all_data = self.dm.get_all_data_for_universe(
-            universe, 
-            required_columns=['open', 'high', 'low', 'close', 'volume']
+            universe,
+            required_columns=['open', 'high', 'low', 'close', 'volume', 'industry']
         )
         
         if all_data is None or all_data.empty:
@@ -324,13 +365,22 @@ class BTDataExporter:
             asset_data['combined_signal'] = asset_factors
         else:
             asset_data['combined_signal'] = np.nan
-        
-        # 10. 添加 openinterest 列
+
+        # 10. 提取并编码行业信息（行业对每只股票是固定的，取第一个非空值）
+        if 'industry' in asset_data.columns:
+            industry_name = asset_data['industry'].dropna().iloc[0] if not asset_data['industry'].dropna().empty else None
+            # 将行业名称编码为数值（Backtrader Line 只能存储数值）
+            industry_code = self._encode_industry(industry_name)
+            asset_data['industry'] = industry_code
+        else:
+            asset_data['industry'] = -1  # 无行业信息
+
+        # 11. 添加 openinterest 列
         asset_data['openinterest'] = 0
-        
-        # 11. 最终列顺序
+
+        # 12. 最终列顺序
         asset_data = asset_data[['open', 'high', 'low', 'close', 'volume',
-                                  'openinterest', 'combined_signal', 'suspended']]
+                                  'openinterest', 'combined_signal', 'suspended', 'industry']]
         
         # 12. 导出到 Parquet 文件（优化写入参数，减小文件体积并提高写入速度）
         output_path = os.path.join(self.output_dir, f'{asset}.parquet')
