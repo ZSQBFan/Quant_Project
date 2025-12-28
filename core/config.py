@@ -102,6 +102,7 @@ class BacktestConfig:
     # 其他参数
     benchmark: Optional[str] = None
     output: Dict[str, Any] = field(default_factory=dict)
+    execution: Dict[str, bool] = field(default_factory=lambda: {'preload': False, 'runonce': False})
 
 
 @dataclass
@@ -490,7 +491,8 @@ class ConfigLoader:
                 capital_manager_params=capital_manager_params,
                 triggers=triggers,
                 benchmark=config_dict.get('benchmark'),
-                output=config_dict.get('output', {})
+                output=config_dict.get('output', {}),
+                execution=config_dict.get('execution', {'preload': False, 'runonce': False})
             )
         except Exception as e:
             self.logger.error(f"回测配置解析失败: {e}")

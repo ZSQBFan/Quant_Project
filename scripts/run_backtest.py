@@ -311,6 +311,7 @@ def run_backtest(config_loader):
         from backtest.pipeline.allocators import EqualWeightAllocator
         from backtest.pipeline.capital import FullPositionManager
         from backtest.core.rebalance_calendar import create_rebalance_calendar
+        from backtest.analyzers import TurnoverAnalyzer
 
         logger.info("=" * 60)
         logger.info("🚀 Backtrader 回测引擎启动")
@@ -346,12 +347,13 @@ def run_backtest(config_loader):
         if not stock_files:
             raise FileNotFoundError(f"数据目录为空: {data_dir}")
 
-        # 串行加载 Parquet 文件（避免多线程闭包问题，且 parquet 加载本身已很快）
-        loaded_count = 0
-        logger.info(f"  开始加载股票数据...")
+        # 并行加载 Parquet 文件 (优化性能)
+        logger.info(f"  开始加载股票数据 (并行, {len(stock_files)} 文件)...")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from tqdm import tqdm
 
-        results_list = []
-        for s_file in stock_files:
+        def load_single_parquet(s_file):
+            """单个文件加载函数"""
             try:
                 file_path = os.path.join(data_dir, s_file)
                 df = pd.read_parquet(file_path)
@@ -360,10 +362,27 @@ def run_backtest(config_loader):
                     df.index = pd.to_datetime(df.index)
 
                 ticker = s_file.replace('.parquet', '')
-                results_list.append((True, df, ticker))
+                return True, df, ticker
             except Exception as e:
-                logger.warning(f"  ⚠️ 加载 {s_file} 失败: {e}")
-                results_list.append((False, None, str(e)))
+                return False, None, f"{s_file}: {e}"
+
+        results_list = []
+        loaded_count = 0  # 初始化计数器
+        # 使用线程池加速加载 (IO密集型)
+        # 根据文件数量动态调整线程数，但不超过 32
+        max_workers = min(32, os.cpu_count() * 4 if os.cpu_count() else 16)
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {executor.submit(load_single_parquet, f): f for f in stock_files}
+            
+            # 使用 tqdm 显示加载进度
+            pbar = tqdm(total=len(stock_files), desc="Loading Stocks", unit="file", leave=False)
+            
+            for future in as_completed(future_to_file):
+                results_list.append(future.result())
+                pbar.update(1)
+            
+            pbar.close()
 
         for success, df, ticker_or_error in results_list:
             if success:
@@ -479,7 +498,8 @@ def run_backtest(config_loader):
         cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharpe')
         cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-        logger.debug("  ✅ 分析器已添加 (Sharpe, DrawDown, TradeAnalyzer)")
+        cerebro.addanalyzer(TurnoverAnalyzer, _name='turnover')
+        logger.debug("  ✅ 分析器已添加 (Sharpe, DrawDown, TradeAnalyzer, Turnover)")
 
         # 添加内置观察者
         cerebro.addobserver(bt.observers.Value)
@@ -494,10 +514,15 @@ def run_backtest(config_loader):
         date_range = pd.date_range(start=START_DATE, end=END_DATE, freq='B')  # 工作日
         estimated_days = len(date_range)
         logger.info(f"📊 数据规模: {loaded_count} 只股票 × ~{estimated_days} 个交易日")
-        logger.info(f"⏱️  预计需要 1-3 分钟 (取决于机器性能)")
-        logger.info(f"💡 进度将每 20 个交易日更新一次\n")
 
-        results = cerebro.run()
+        # 针对大量股票数据的性能优化:
+        # 读取配置文件中的执行参数 (默认均为 False)
+        exec_config = backtest_config.execution
+        preload_param = exec_config.get('preload', False)
+        runonce_param = exec_config.get('runonce', False)
+
+        logger.info(f"⚡ 正在启动 Backtrader (配置模式: preload={preload_param}, runonce={runonce_param})...")
+        results = cerebro.run(preload=preload_param, runonce=runonce_param)
 
         if not results:
             raise RuntimeError("Backtrader 未返回策略结果。")
@@ -565,6 +590,8 @@ def run_backtest(config_loader):
                         analyzers['drawdown'] = strat.analyzers.drawdown.get_analysis()
                     if hasattr(strat.analyzers, 'trades'):
                         analyzers['trades'] = strat.analyzers.trades.get_analysis()
+                    if hasattr(strat.analyzers, 'turnover'):
+                        analyzers['turnover'] = strat.analyzers.turnover.get_analysis()
         except Exception as e:
             logger.error(f"生成报告失败: {e}", exc_info=True)
             analyzers = {}
@@ -620,6 +647,22 @@ def run_backtest(config_loader):
             logger.info(f"📉 最大回撤: {max_drawdown}")
             logger.info(f"⚡ Sharpe比率: {sharpe_ratio}")
             logger.info(f"🔄 交易次数: {total_trades}")
+            
+            # 获取换手率指标
+            turnover_ratio = "N/A"
+            annual_turnover = "N/A"
+            if analyzers:
+                turnover_analysis = analyzers.get('turnover', {})
+                if turnover_analysis:
+                    avg_turnover = turnover_analysis.get('avg_turnover')
+                    if avg_turnover is not None:
+                        turnover_ratio = f"{avg_turnover:.2%}"
+                    annual = turnover_analysis.get('annual_turnover')
+                    if annual is not None:
+                        annual_turnover = f"{annual:.2f}x"
+            logger.info(f"📊 平均换手率: {turnover_ratio}")
+            logger.info(f"📈 年化换手率: {annual_turnover}")
+            
             logger.info(f"🎯 股票池大小: {len(universe)} 只")
             logger.info(f"💸 手续费率: {COMMISSION:.4f}")
             logger.info("=" * 60)

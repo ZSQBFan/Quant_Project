@@ -62,6 +62,13 @@ benchmark: "600519"  # 基准股票（贵州茅台）
 output:
   dir: "output/bt_reports"
   bt_data_dir: "temp/backtest_data"  # 回测数据导出目录
-  save_trades: true
-  save_portfolio: true
-  generate_report: true
+
+# ============================================================================
+# 执行配置 (高级性能优化)
+# ============================================================================
+execution:
+  # 是否预加载所有数据到内存 (对于大量股票建议设为 false)
+  preload: true
+
+  # 是否使用向量化运行一次模式 (对于大量股票且未对齐数据建议设为 false，使用事件驱动模式)
+  runonce: true
