@@ -466,6 +466,10 @@ def run_backtest(config_loader):
         cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
         logger.debug("  ✅ 分析器已添加 (Sharpe, DrawDown, TradeAnalyzer)")
 
+        # 添加内置观察者
+        cerebro.addobserver(bt.observers.Value)
+        logger.debug("  ✅ 观察者已添加 (Value)")
+
         # 运行回测
         logger.info("\n" + "=" * 60)
         logger.info("🏃 开始运行回测...")
@@ -514,28 +518,41 @@ def run_backtest(config_loader):
     # 5. 生成报告
     # =========================================================================
     try:
-        from backtest.reports import ReportGenerator
+        from backtest.reports.report_generator import ReportGenerator
+        from datetime import datetime
     except ImportError:
         logger.warning("无法导入报告生成器")
         ReportGenerator = None
 
     if not _skip_report_generation and ReportGenerator is not None and cerebro is not None:
-        report_gen = ReportGenerator(output_dir=OUTPUT_DIR)
-
-        # 获取分析器结果
-        analyzers = {}
-        if results and len(results) > 0:
-            strat = results[0]
-            if hasattr(strat, 'analyzers'):
-                if hasattr(strat.analyzers, 'sharpe'):
-                    analyzers['sharpe'] = strat.analyzers.sharpe.get_analysis()
-                if hasattr(strat.analyzers, 'drawdown'):
-                    analyzers['drawdown'] = strat.analyzers.drawdown.get_analysis()
-                if hasattr(strat.analyzers, 'trades'):
-                    analyzers['trades'] = strat.analyzers.trades.get_analysis()
-
-        # 报告生成器内部会输出一次"✅ 报告已生成: ..."，此处不重复输出
-        _ = report_gen.generate(cerebro, strat if results else None, analyzers)
+        try:
+            report_gen = ReportGenerator()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            report_filename = f"backtest_report_{timestamp}.html"
+            report_path = os.path.join(OUTPUT_DIR, report_filename)
+            
+            # 使用新实现的 ReportGenerator 生成报告
+            # 它会自动处理分析器和组件渲染
+            report_gen.generate(
+                strategy_results=results,
+                output_path=report_path,
+                title=f"回测分析报告 ({START_DATE} 至 {END_DATE})"
+            )
+            
+            # 同时也获取分析器结果供后续基本信息输出使用
+            analyzers = {}
+            if results and len(results) > 0:
+                strat = results[0]
+                if hasattr(strat, 'analyzers'):
+                    if hasattr(strat.analyzers, 'sharpe'):
+                        analyzers['sharpe'] = strat.analyzers.sharpe.get_analysis()
+                    if hasattr(strat.analyzers, 'drawdown'):
+                        analyzers['drawdown'] = strat.analyzers.drawdown.get_analysis()
+                    if hasattr(strat.analyzers, 'trades'):
+                        analyzers['trades'] = strat.analyzers.trades.get_analysis()
+        except Exception as e:
+            logger.error(f"生成报告失败: {e}", exc_info=True)
+            analyzers = {}
 
     # =========================================================================
     # 6. 输出回测结束的基本信息
