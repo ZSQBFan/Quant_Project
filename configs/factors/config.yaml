@@ -42,7 +42,7 @@ factor_calculation:
 
 enabled_factors:
   # --- 简单因子 (逐只股票计算) ---
-  # - Momentum           # 动量因子 - N日价格变化率
+  - Momentum           # 动量因子 - N日价格变化率
   # - Reversal20D        # 20日反转因子 - 加权反转
   # - RSI                # 相对强弱指数 (14日)
   # - KDJ                # KDJ随机指标
@@ -55,15 +55,25 @@ enabled_factors:
   # --- 复合因子 (跨股票向量化计算，行业中性处理) ---
   - IndNeu_Momentum    # 行业中性动量因子
   - IndNeu_Reversal20D # 行业中性反转因子
-  - IndNeu_VolumeCV    # 行业中性成交量变异系数
-  # - IndNeu_EP          # 行业中性市盈率倒数 (E/P)
-  # - IndNeu_BP          # 行业中性市净率倒数 (B/P)
-  # - IndNeu_ROE       # 行业中性净资产收益率 
+  # - IndNeu_VolumeCV    # 行业中性成交量变异系数
+  - IndNeu_EP          # 行业中性市盈率倒数 (E/P)
+  - IndNeu_BP          # 行业中性市净率倒数 (B/P)
+  # - IndNeu_ROE       # 行业中性净资产收益率
   - IndNeu_GPM         # 行业中性毛利率
   # - IndNeu_SalesGrowth # 行业中性营收同比增长率
   - IndNeu_CFOP        # 行业中性经营现金流市价率
-  # - IndNeu_AssetTurnover  # 行业中性总资产周转率 
-  # - IndNeu_CurrentRatio   # 行业中性流动比率 
+  # - IndNeu_AssetTurnover  # 行业中性总资产周转率
+  # - IndNeu_CurrentRatio   # 行业中性流动比率
+
+  # --- 复合因子 (跨股票向量化计算，非行业中性化) ---
+  - EP                 # 市盈率倒数 (E/P)
+  - BP                 # 市净率倒数 (B/P)
+  # - ROE                # 净资产收益率
+  - GPM                # 毛利率
+  # - SalesGrowth        # 营收同比增长率
+  - CFOP               # 经营现金流市价率
+  # - AssetTurnover      # 总资产周转率
+  # - CurrentRatio       # 流动比率 
 
 # ============================================================================
 # 策略选择

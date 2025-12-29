@@ -308,8 +308,19 @@ def run_backtest(config_loader):
         from backtest.triggers.stop_loss import StopLossTrigger
         from backtest.triggers.rebalance import RebalanceDayTrigger
         from backtest.pipeline.selectors import TopNSelector, IndustryNeutralSelector
-        from backtest.pipeline.allocators import EqualWeightAllocator
-        from backtest.pipeline.capital import FullPositionManager
+        from backtest.pipeline.allocators import (
+            EqualWeightAllocator,
+            RiskParityAllocator,
+            InverseVolatilityAllocator,
+            MaxSharpeAllocator,
+            MinimumVarianceAllocator
+        )
+        from backtest.pipeline.capital import (
+            FullPositionManager,
+            FullKellyManager,
+            HalfKellyManager,
+            QuarterKellyManager
+        )
         from backtest.core.rebalance_calendar import create_rebalance_calendar
         from backtest.analyzers import TurnoverAnalyzer
 
@@ -430,11 +441,113 @@ def run_backtest(config_loader):
             logger.error(f"不支持的选股器类型: {selector_type}")
             raise ValueError(f"不支持的选股器类型: {selector_type}")
 
-        allocator = EqualWeightAllocator()
-        logger.info(f"  权重分配器: EqualWeightAllocator (等权重)")
+        # 从 backtest_config 动态加载分配器（从 config.yaml + pipeline/allocators.yaml）
+        allocator_type = backtest_config.allocator
+        allocator_params = backtest_config.allocator_params
 
-        capital_manager = FullPositionManager(utilization_ratio=0.95)
-        logger.info(f"  资金管理器: FullPositionManager (资金利用率 95%)")
+        if allocator_type == 'EqualWeight':
+            allocator = EqualWeightAllocator()
+            logger.info(f"  权重分配器: EqualWeightAllocator (等权重)")
+
+        elif allocator_type == 'RiskParity' or allocator_type == 'InverseVolatility':
+            lookback_period = allocator_params.get('lookback_period', 60)
+            min_periods = allocator_params.get('min_periods', 30)
+            volatility_floor = allocator_params.get('volatility_floor', 0.0001)
+            allocator = RiskParityAllocator(
+                lookback_period=lookback_period,
+                min_periods=min_periods,
+                volatility_floor=volatility_floor
+            )
+            allocator_name = "RiskParity/波动率倒数加权" if allocator_type == 'RiskParity' else "波动率倒数加权"
+            logger.info(f"  权重分配器: {allocator_name} (回看周期: {lookback_period}天)")
+
+        elif allocator_type == 'MaxSharpe':
+            lookback_period = allocator_params.get('lookback_period', 120)
+            risk_free_rate = allocator_params.get('risk_free_rate', 0.02)
+            min_periods = allocator_params.get('min_periods', 60)
+            max_weight = allocator_params.get('max_weight', 0.3)
+            allocator = MaxSharpeAllocator(
+                lookback_period=lookback_period,
+                risk_free_rate=risk_free_rate,
+                min_periods=min_periods,
+                max_weight=max_weight
+            )
+            logger.info(f"  权重分配器: MaxSharpeAllocator (回看周期: {lookback_period}天, 无风险利率: {risk_free_rate:.2%})")
+
+        elif allocator_type == 'MinimumVariance':
+            lookback_period = allocator_params.get('lookback_period', 120)
+            min_periods = allocator_params.get('min_periods', 60)
+            max_weight = allocator_params.get('max_weight', 0.3)
+            regularization = allocator_params.get('regularization', 0.001)
+            allocator = MinimumVarianceAllocator(
+                lookback_period=lookback_period,
+                min_periods=min_periods,
+                max_weight=max_weight,
+                regularization=regularization
+            )
+            logger.info(f"  权重分配器: MinimumVarianceAllocator (回看周期: {lookback_period}天, 最大权重: {max_weight:.1%})")
+
+        else:
+            logger.error(f"不支持的分配器类型: {allocator_type}")
+            raise ValueError(f"不支持的分配器类型: {allocator_type}")
+
+        # 从 backtest_config 动态加载资金管理器（从 config.yaml + pipeline/capital.yaml）
+        capital_manager_type = backtest_config.capital_manager
+        capital_manager_params = backtest_config.capital_manager_params
+
+        if capital_manager_type == 'FullPosition':
+            utilization_ratio = capital_manager_params.get('utilization_ratio', 0.95)
+            capital_manager = FullPositionManager(utilization_ratio=utilization_ratio)
+            logger.info(f"  资金管理器: FullPositionManager (资金利用率 {utilization_ratio:.0%})")
+
+        elif capital_manager_type == 'FullKelly':
+            lookback_period = capital_manager_params.get('lookback_period', 120)
+            risk_free_rate = capital_manager_params.get('risk_free_rate', 0.02)
+            min_periods = capital_manager_params.get('min_periods', 60)
+            max_position = capital_manager_params.get('max_position', 0.95)
+            min_position = capital_manager_params.get('min_position', 0.0)
+            capital_manager = FullKellyManager(
+                lookback_period=lookback_period,
+                risk_free_rate=risk_free_rate,
+                min_periods=min_periods,
+                max_position=max_position,
+                min_position=min_position
+            )
+            logger.info(f"  资金管理器: FullKellyManager (Full Kelly, 回看周期: {lookback_period}天)")
+
+        elif capital_manager_type == 'HalfKelly':
+            lookback_period = capital_manager_params.get('lookback_period', 120)
+            risk_free_rate = capital_manager_params.get('risk_free_rate', 0.02)
+            min_periods = capital_manager_params.get('min_periods', 60)
+            max_position = capital_manager_params.get('max_position', 0.95)
+            min_position = capital_manager_params.get('min_position', 0.0)
+            capital_manager = HalfKellyManager(
+                lookback_period=lookback_period,
+                risk_free_rate=risk_free_rate,
+                min_periods=min_periods,
+                max_position=max_position,
+                min_position=min_position
+            )
+            logger.info(f"  资金管理器: HalfKellyManager (Half Kelly, 回看周期: {lookback_period}天)")
+
+        elif capital_manager_type == 'QuarterKelly':
+            lookback_period = capital_manager_params.get('lookback_period', 120)
+            risk_free_rate = capital_manager_params.get('risk_free_rate', 0.02)
+            min_periods = capital_manager_params.get('min_periods', 60)
+            max_position = capital_manager_params.get('max_position', 0.95)
+            min_position = capital_manager_params.get('min_position', 0.0)
+            capital_manager = QuarterKellyManager(
+                lookback_period=lookback_period,
+                risk_free_rate=risk_free_rate,
+                min_periods=min_periods,
+                max_position=max_position,
+                min_position=min_position
+            )
+            logger.info(f"  资金管理器: QuarterKellyManager (Quarter Kelly, 回看周期: {lookback_period}天)")
+
+        else:
+            logger.error(f"不支持的资金管理器类型: {capital_manager_type}")
+            raise ValueError(f"不支持的资金管理器类型: {capital_manager_type}")
 
         # 从配置文件动态加载触发器
         triggers = []

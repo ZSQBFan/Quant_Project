@@ -133,3 +133,93 @@ IndNeu_CurrentRatio:
     - current_liabilities
     - industry
   description: "行业中性流动比率 (偿债能力)"
+
+# ============================================================================
+# 非行业中性化估值因子
+# ============================================================================
+
+EP:
+  category: complex
+  params: {}
+  required_columns:
+    - close
+    - share_capital
+    - net_profit_parent
+  description: "市盈率倒数 (E/P)"
+
+BP:
+  category: complex
+  params: {}
+  required_columns:
+    - close
+    - share_capital
+    - total_equity_parent
+  description: "市净率倒数 (B/P)"
+
+# ============================================================================
+# 非行业中性化盈利因子
+# ============================================================================
+
+ROE:
+  category: complex
+  params: {}
+  required_columns:
+    - net_profit_parent
+    - total_equity_parent
+  description: "净资产收益率 (ROE)"
+
+GPM:
+  category: complex
+  params: {}
+  required_columns:
+    - total_revenue
+    - cost_of_goods_sold
+  description: "毛利率 (Gross Profit Margin)"
+
+# ============================================================================
+# 非行业中性化成长因子
+# ============================================================================
+
+SalesGrowth:
+  category: complex
+  params: {}
+  required_columns:
+    - total_revenue
+  description: "营收同比增长率 (YoY)"
+
+# ============================================================================
+# 非行业中性化现金流因子
+# ============================================================================
+
+CFOP:
+  category: complex
+  params: {}
+  required_columns:
+    - net_cash_flow_ops
+    - close
+    - share_capital
+  description: "经营现金流市价率 (CFO/P)"
+
+# ============================================================================
+# 非行业中性化运营效率因子
+# ============================================================================
+
+AssetTurnover:
+  category: complex
+  params: {}
+  required_columns:
+    - total_revenue
+    - total_assets
+  description: "总资产周转率"
+
+# ============================================================================
+# 非行业中性化偿债能力因子
+# ============================================================================
+
+CurrentRatio:
+  category: complex
+  params: {}
+  required_columns:
+    - current_assets
+    - current_liabilities
+  description: "流动比率 (偿债能力)"

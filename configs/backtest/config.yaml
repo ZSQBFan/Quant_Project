@@ -21,7 +21,7 @@ broker:
 
   # 佣金配置
   commission:
-    rate: 0.001  # 万分之十 (0.1%)，接近A股实际佣金
+    rate: 0.003  # 万分之十 (0.1%)，接近A股实际佣金
 
 # ============================================================================
 # Pipeline 组件选择
@@ -33,9 +33,11 @@ broker:
 selector: TopN
 
 # 权重分配器（详见 pipeline/allocators.yaml）
-allocator: EqualWeight
+# 可选值: EqualWeight, RiskParity, MaxSharpe, MinimumVariance
+allocator: MaxSharpe
 
 # 资金管理器（详见 pipeline/capital.yaml）
+# 可选值: FullPosition, FullKelly, HalfKelly, QuarterKelly
 capital_manager: FullPosition
 
 # ============================================================================

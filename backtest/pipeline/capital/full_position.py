@@ -178,23 +178,24 @@ class FullPositionManager(CapitalManagerBase):
         elif self.utilization_ratio < 0.5:
             self.logger.info("资金利用率较低，资金使用效率可能不高")
     
-    def get_allocation(self, total_value: float) -> float:
+    def get_allocation(self, total_value: float, data_objects: list = None) -> float:
         """
         计算可用于交易的资金量
-        
+
         详细处理流程：
         1. 验证总价值参数的有效性
         2. 检查利用率是否仍然有效
         3. 计算可用资金：allocation = total_value * utilization_ratio
         4. 处理浮点数精度问题
         5. 记录详细的分配过程
-        
+
         Args:
             total_value (float): 账户总价值
-            
+            data_objects (list, optional): backtrader数据对象列表（本管理器不使用，为了兼容接口）
+
         Returns:
             float: 可用于交易的资金量
-            
+
         Raises:
             ValueError: 当总价值无效时
         """

@@ -11,7 +11,7 @@
 TopN:
   description: "选择因子值排名最高的N只股票"
   params:
-    top_n: 20
+    top_n: 25
 
 # ============================================================================
 # IndustryNeutral 行业中性化选股器
@@ -21,8 +21,8 @@ TopN:
 IndustryNeutral:
   description: "行业中性化选股器，在各行业中均衡选股"
   params:
-    total_stocks: 20           # 总共选择的股票数量
+    total_stocks: 25           # 总共选择的股票数量
     strategy: "top_industries"          # 分配策略: equal/proportional/top_industries
     stocks_per_industry: null  # 每个行业选择的数量（仅 equal 策略）
-    top_industries: 4       # 选择的行业数量（仅 top_industries 策略）
-    min_stocks_per_industry: 3 # 每个行业最少选择数量
+    top_industries: 5       # 选择的行业数量（仅 top_industries 策略）
+    min_stocks_per_industry: 2 # 每个行业最少选择数量
