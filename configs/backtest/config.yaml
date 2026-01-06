@@ -38,7 +38,7 @@ allocator: MaxSharpe
 
 # 资金管理器（详见 pipeline/capital.yaml）
 # 可选值: FullPosition, FullKelly, HalfKelly, QuarterKelly
-capital_manager: FullPosition
+capital_manager: FullKelly
 
 # ============================================================================
 # 触发器选择
@@ -51,11 +51,7 @@ triggers:
   - type: StopLoss
     config_file: stop_loss.yaml
 
-# ============================================================================
-# 基准配置
-# ============================================================================
 
-benchmark: "600519"  # 基准股票（贵州茅台）
 
 # ============================================================================
 # 输出配置
